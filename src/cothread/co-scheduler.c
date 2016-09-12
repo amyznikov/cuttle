@@ -20,10 +20,9 @@
 #include <cuttle/debug.h>
 #include <cuttle/sockopt.h>
 #include <cuttle/time.h>
+#include <cuttle/cclist.h>
 #include <cuttle/cothread/scheduler.h>
 
-
-#include "cclist.h"
 #include "pthread_wait.h"
 
 

@@ -165,7 +165,7 @@ end:
     co_ssl_listening_port_release(&sslp);
   }
 
-  return fok;
+  return sslp;
 }
 
 

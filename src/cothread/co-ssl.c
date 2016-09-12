@@ -238,7 +238,7 @@ ssize_t co_ssl_socket_recv(co_ssl_socket * ssl_sock, void * buf, size_t size)
 }
 
 
-co_ssl_socket * co_ssl_socket_accept(co_socket * cc, SSL_CTX * ssl_ctx)
+co_ssl_socket * co_ssl_socket_accept(co_socket ** cc, SSL_CTX * ssl_ctx)
 {
   co_ssl_socket * ssl_sock = NULL;
 
@@ -248,6 +248,9 @@ co_ssl_socket * co_ssl_socket_accept(co_socket * cc, SSL_CTX * ssl_ctx)
   else if ( SSL_accept(ssl_sock->ssl) != 1 ) {
     CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "SSL_accept() fails");
     co_ssl_socket_free(&ssl_sock);
+  }
+  else {
+    *cc = NULL;
   }
 
   return ssl_sock;

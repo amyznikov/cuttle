@@ -57,7 +57,7 @@ struct co_ssl_connect_opts {
 
 co_ssl_socket * co_ssl_connect(const struct sockaddr * addrs, const struct co_ssl_connect_opts * opts);
 co_ssl_socket * co_ssl_server_connect(const char * address, uint16_t port, const struct co_ssl_connect_opts * opts);
-co_ssl_socket * co_ssl_socket_accept(co_socket * cc, SSL_CTX * ssl_ctx);
+co_ssl_socket * co_ssl_socket_accept(co_socket ** cc, SSL_CTX * ssl_ctx);
 co_socket * co_ssl_listen(const struct sockaddr * addrs, int sock_type, int proto);
 
 

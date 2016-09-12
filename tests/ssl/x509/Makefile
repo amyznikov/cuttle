@@ -21,7 +21,7 @@ bindir  = $(prefix)/bin
 incdir  = $(prefix)/include
 libdir  = $(prefix)/lib
 
-INCLUDES+= -I. -I../../include
+INCLUDES+= -I. -I../../../include
 SOURCES = $(wildcard *.c)
 HEADERS = $(wildcard *.h)
 MODULES = $(foreach s,$(SOURCES),$(addsuffix .o,$(basename $(s))))
@@ -41,18 +41,17 @@ LDFLAGS = $(CFLAGS)
 # STRIP = $(cross)strip --strip-all
 STRIP = @echo "don't strip "
 
-LDLIBS += ../../../libcuttle.a -L/usr/local/lib -lcrypto -lssl -lrt -ldl -lpthread
+LIBCUTTLE = ../../../libcuttle.a 
+
+LDLIBS += $(LIBCUTTLE) -L/usr/local/lib -lcrypto -lssl -lrt -ldl -lpthread
 
 
 #########################################
 
 
 $(MODULES): $(HEADERS) Makefile
-$(TARGET) : $(MODULES) Makefile ../../libcuttle.a
+$(TARGET) : $(MODULES) Makefile $(LIBCUTTLE)
 	$(LD) $(LDFLAGS)  $(MODULES) $(LDLIBS) -o $@
-
-../../libcuttle.a: 
-	$(MAKE) -C ../.. all
 
 clean:
 	$(RM) $(MODULES)

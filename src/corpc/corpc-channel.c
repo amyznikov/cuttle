@@ -229,13 +229,12 @@ static void corpc_channel_thread(void * arg)
 
     case corpc_channel_state_accepting : {
       socket = (co_socket*) channel->ssl_sock;
-      if ( !(channel->ssl_sock = co_ssl_socket_accept(socket, channel->listen_opts.ssl_ctx)) ) {
+      if ( !(channel->ssl_sock = co_ssl_socket_accept(&socket, channel->listen_opts.ssl_ctx)) ) {
         break;
       }
       if ( channel->listen_opts.onaccepted && !(fok = channel->listen_opts.onaccepted(channel)) ) {
         break;
       }
-      socket = NULL;
       corpc_set_channel_state(channel, corpc_channel_state_accepted, 0);
     }
     break;

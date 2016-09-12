@@ -18,7 +18,7 @@
 #include <cuttle/debug.h>
 #include <cuttle/sockopt.h>
 #include <cuttle/ssl/init-ssl.h>
-#include <cuttle/interop/co-ssl-server.h>
+#include <cuttle/cothread/ssl-server.h>
 
 
 
@@ -31,13 +31,31 @@ static char ServerCert[PATH_MAX];
 static char ServerKey[PATH_MAX];
 static SSL_CTX * g_ssl_ctx;
 
-static void on_accepted_connection(co_ssl_server_context * context)
+
+struct connection_context {
+  co_ssl_listening_port * sslp;
+  co_socket * sock;
+};
+
+
+static void process_connection(void * arg)
 {
+  struct connection_context * context = arg;
+
   char buf[1024] = "";
   ssize_t cbrecv, cbsent;
-  co_ssl_socket * ssl_sock = context->ssl_sock;
+
+  SSL_CTX * ssl_ctx  = context->sslp->ssl_ctx;
+  co_socket * sock = context->sock;
+  co_ssl_socket * ssl_sock = NULL;
 
   CF_DEBUG("Started");
+
+  if ( !(ssl_sock = co_ssl_socket_accept(&sock, ssl_ctx)) ) {
+    CF_CRITICAL("co_ssl_socket_accept() fails");
+    goto end;
+  }
+
 
   if ( (cbrecv = co_ssl_socket_recv(ssl_sock, buf, sizeof(buf) - 1)) < 0 ) {
     CF_CRITICAL("co_ssl_socket_recv() fails");
@@ -60,8 +78,41 @@ static void on_accepted_connection(co_ssl_server_context * context)
 
 end:
 
+  co_socket_close(&sock, false);
+  co_ssl_socket_close(&ssl_sock, false);
+
   CF_DEBUG("Finished");
 }
+
+
+static bool on_accept_connection(struct co_ssl_listening_port * sslp, co_socket * sock)
+{
+  struct connection_context * context;
+
+  bool fok = false;
+
+  if ( !(context = malloc(sizeof(*context))) ) {
+    CF_CRITICAL("malloc(connection_context) fails");
+    goto end;
+  }
+
+  context->sock = sock;
+  context->sslp = sslp;
+
+  if ( !co_schedule(process_connection, context, PROCESSOR_THREAD_STACK_SIZE) ) {
+    CF_CRITICAL("co_schedule(process_connection) fails");
+    goto end;
+  }
+
+end:
+
+  if ( !fok ) {
+    free(context);
+  }
+
+  return fok;
+}
+
 
 
 int main(int argc, char *argv[])
@@ -148,14 +199,14 @@ int main(int argc, char *argv[])
     goto end;
   }
 
-  co_ssl_server_add_new_port(server, &(struct co_ssl_server_port_opts ) {
+  co_ssl_server_add_new_port(server, &(struct co_ssl_listening_port_opts ) {
         .bind_address.in = {
           .sin_family = AF_INET,
           .sin_port = htons(6008),
           .sin_addr.s_addr = 0,
         },
         .ssl_ctx = g_ssl_ctx,
-        .on_accepted = on_accepted_connection,
+        .onaccept = on_accept_connection,
         .accepted_stack_size = PROCESSOR_THREAD_STACK_SIZE
       });
 

@@ -43,12 +43,21 @@ static void client_thread(void * arg)
   CF_DEBUG("Started");
 
 
-  CF_DEBUG("C co_ssl_tcp_server_connect()");
-  if ( !(ssl_sock = co_ssl_tcp_server_connect("localhost", 6008, 5000, g_ssl_ctx)) ) {
-    CF_CRITICAL("co_ssl_tcp_server_connect() fails");
+  CF_DEBUG("C co_ssl_server_connect()");
+
+  ssl_sock = co_ssl_server_connect("localhost", 6008,
+      &(const co_ssl_connect_opts) {
+      .ssl_ctx = g_ssl_ctx,
+      .sock_type = SOCK_STREAM,
+      .proto = IPPROTO_TCP,
+      .tmout = 5000
+      });
+
+  if ( !ssl_sock ) {
+    CF_CRITICAL("co_ssl_server_connect() fails");
     goto end;
   }
-  CF_DEBUG("R co_ssl_tcp_server_connect()");
+  CF_DEBUG("R co_ssl_server_connect()");
 
   CF_DEBUG("C co_ssl_socket_send()");
   if ( (cbsent = co_ssl_socket_send(ssl_sock, buf, strlen(buf) + 1)) <= 0 ) {
