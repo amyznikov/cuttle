@@ -26,7 +26,6 @@ struct corpc_stream {
   corpc_stream_state state;
   uint16_t sid;
   uint16_t did;
-  int reason;
 };
 
 typedef
@@ -36,6 +35,9 @@ struct corpc_stream_opts {
   uint16_t sid;
   uint16_t did;
 } corpc_stream_opts;
+
+
+
 
 
 struct corpc_channel {
@@ -75,9 +77,6 @@ void corpc_channel_relase(corpc_channel ** chp);
 enum corpc_channel_state corpc_get_channel_state(const corpc_channel * channel);
 bool corpc_channel_established(const corpc_channel * channel);
 
-
-void corpc_channel_set_client_context(corpc_channel * channel, void * client_context);
-void * corpc_channel_get_client_context(const corpc_channel * channel);
 
 bool corpc_channel_read(struct corpc_stream * st, corpc_msg * msg);
 bool corpc_channel_write(struct corpc_stream * st, const corpc_msg * msg);

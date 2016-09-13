@@ -224,12 +224,17 @@ ssize_t co_ssl_socket_recv(co_ssl_socket * ssl_sock, void * buf, size_t size)
   ssize_t bytes_received;
 
   if ( ssl_sock->ssl ) {
-    bytes_received = SSL_read(ssl_sock->ssl, buf, size);
+    if ( (bytes_received = SSL_read(ssl_sock->ssl, buf, size)) <= 0 ) {
+      CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "SSL_read() fails");
+    }
   }
   else if ( ssl_sock->cc ) {
-    bytes_received = co_socket_recv(ssl_sock->cc, buf, size, 0);
+    if ( (bytes_received = co_socket_recv(ssl_sock->cc, buf, size, 0)) <= 0 ) {
+      CF_SSL_ERR(CF_SSL_ERR_STDIO, "co_socket_recv() fails: %s", strerror(errno));
+    }
   }
   else {
+    CF_SSL_ERR(CF_SSL_ERR_INVALID_ARG, "invalid ssl_sock: ssl and cc are both NULL");
     bytes_received = -1;
     errno = EBADF;
   }
@@ -245,7 +250,7 @@ co_ssl_socket * co_ssl_socket_accept(co_socket ** cc, SSL_CTX * ssl_ctx)
   if ( !(ssl_sock = co_ssl_socket_new(*cc, ssl_ctx)) ) {
     CF_SSL_ERR(CF_SSL_ERR_CUTTLE, "co_ssl_socket_new() fails");
   }
-  else if ( SSL_accept(ssl_sock->ssl) != 1 ) {
+  else if ( ssl_sock->ssl && SSL_accept(ssl_sock->ssl) != 1 ) {
     CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "SSL_accept() fails");
     co_ssl_socket_free(&ssl_sock);
   }
@@ -263,6 +268,8 @@ co_socket * co_ssl_listen(const struct sockaddr * addrs, int sock_type, int prot
   int so = -1;
 
   bool fok = false;
+
+  CF_DEBUG("ENTER");
 
   if ( !sock_type ) {
     sock_type = SOCK_STREAM;
@@ -295,10 +302,12 @@ co_socket * co_ssl_listen(const struct sockaddr * addrs, int sock_type, int prot
     goto end;
   }
 
+  CF_DEBUG("C co_socket_new()");
   if ( !(cc = co_socket_new(so)) ) {
     CF_SSL_ERR(CF_SSL_ERR_STDIO, "co_socket_new() fails: %s", strerror(errno));
     goto end;
   }
+  CF_DEBUG("R co_socket_new()");
 
   fok = true;
 
@@ -315,8 +324,9 @@ end: ;
     errno = errno_backup;
   }
 
-  return cc;
+  CF_DEBUG("LEAVE: cc=%p", cc);
 
+  return cc;
 }
 
 

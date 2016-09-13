@@ -6,6 +6,7 @@
  */
 
 
+#include <cuttle/debug.h>
 #include <cuttle/corpc/corpc-server.h>
 #include <cuttle/cothread/ssl-server.h>
 #include "corpc-listening-port.h"
@@ -51,7 +52,7 @@ bool corpc_server_add_port(corpc_server * csslsrv, const corpc_listening_port_op
   corpc_listening_port * clp = NULL;
   bool fok = false;
 
-  if ( !corpc_listening_port_new(opts) ) {
+  if ( !(clp = corpc_listening_port_new(opts)) ) {
     goto end;
   }
 

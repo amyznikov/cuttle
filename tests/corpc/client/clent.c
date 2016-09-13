@@ -40,6 +40,8 @@ bool authenticate(corpc_channel * channel, const char * iam, const char * passwo
   corpc_stream * st = NULL;
   bool fok = false;
 
+  CF_DEBUG("ENTER");
+
   st = corpc_open_stream(channel,
       &(const corpc_open_stream_opts ) {
             .service = "auth",
@@ -47,36 +49,44 @@ bool authenticate(corpc_channel * channel, const char * iam, const char * passwo
           });
 
   if ( !st ) {
+    CF_CRITICAL("corpc_open_stream() fails");
     goto end;
   }
 
-  auth_request.iam = "Vasya";
+  auth_request.text = strdup("My Name is Vasya");
   if ( !(fok = corpc_stream_write_auth_request(st, &auth_request)) ) {
+    CF_CRITICAL("corpc_stream_write_auth_request() fails");
     goto end;
   }
 
   if ( !(fok = corpc_stream_read_auth_cookie(st, &auth_cookie)) ) {
+    CF_CRITICAL("corpc_stream_read_auth_cookie() fails");
     goto end;
   }
 
+  CF_DEBUG("GOT auth_cookie: '%s'", auth_cookie.text);
+
+
   // generate signature
-  memcpy(auth_cookie_sign.sign, auth_cookie.cookie, sizeof(auth_cookie_sign.sign));
+  auth_cookie_sign.text = strdup("THIS IS AUTH COOKIE SIGN");
 
   if ( !(fok = corpc_stream_write_auth_cookie_sign(st, &auth_cookie_sign)) ) {
+    CF_CRITICAL("corpc_stream_write_auth_cookie_sign() fails");
     goto end;
   }
 
   if ( !(fok = corpc_stream_read_auth_responce(st, &auth_responce)) ) {
+    CF_CRITICAL("corpc_stream_read_auth_responce() fails");
     goto end;
   }
 
-  // process responce
-  printf("%p\n", auth_responce.ticket);
+  CF_DEBUG("GOT auth_responce: '%s'", auth_responce.text);
 
 end:
 
   corpc_close_stream(&st);
 
+  CF_DEBUG("LEAVE: fok= %d", fok);
   return fok;
 }
 
@@ -139,7 +149,6 @@ static void client_main(void * arg )
   }
 
   CF_DEBUG("channel->state = %s", corpc_channel_state_string(corpc_get_channel_state(channel)));
-
 
   if ( !corpc_open_channel(channel) ) {
     CF_FATAL("corpc_open_channel() fails");

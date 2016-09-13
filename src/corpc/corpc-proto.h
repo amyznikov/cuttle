@@ -30,17 +30,36 @@ enum {
 
 
 typedef
+enum create_stream_responce_code {
+  create_stream_responce_ok = 0,
+  create_stream_responce_no_stream_resources = 1,
+  create_stream_responce_no_service = 2,
+  create_stream_responce_no_method = 3,
+  create_stream_responce_internal_error = 4,
+  create_stream_responce_protocol_error = 5,
+} create_stream_responce_code;
+
+const char * create_stream_responce_status_string(
+    enum create_stream_responce_code code);
+
+
+
+#pragma pack(push, 1)
+
+typedef
 struct comsghdr {
   uint32_t crc;
   uint16_t code;
   uint16_t sid;
   uint16_t did;
-  uint16_t size; // payload size
+  uint16_t pldsize; // payload size
 } comsghdr;
 
 
 #define CORPC_MAX_MSG_SIZE        (64*1024)
 #define CORPC_MAX_PAYLOAD_SIZE    ((CORPC_MAX_MSG_SIZE) - sizeof(struct comsghdr))
+
+
 
 
 typedef
@@ -60,6 +79,12 @@ struct comsg_create_stream_responce {
     uint16_t status;
   } details;
 } comsg_create_stream_responce;
+
+
+
+
+
+
 
 typedef
 struct comsg_close_stream {
@@ -89,9 +114,13 @@ struct comsg {
   };
 } comsg;
 
+
+#pragma pack(pop)
+
+
 bool corpc_proto_recv_msg(co_ssl_socket * ssl_sock, comsg * msgp);
 bool corpc_proto_send_create_stream_request(co_ssl_socket * ssl_sock, uint16_t sid, const char * service, const char * method);
-bool corpc_proto_send_create_stream_reply(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did, uint16_t status);
+bool corpc_proto_send_create_stream_responce(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did, uint16_t status);
 bool corpc_proto_send_close_stream(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did, uint16_t status);
 bool corpc_proto_send_data(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did, const void * data, size_t size);
 

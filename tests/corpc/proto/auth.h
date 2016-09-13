@@ -22,22 +22,22 @@ extern "C" {
 
 typedef
 struct auth_request {
-  char * iam;
+  char * text;
 } auth_request;
 
 typedef
 struct auth_cookie {
-  uint8_t cookie[256];
+  char * text;
 } auth_cookie;
 
 typedef
 struct auth_cookie_sign {
-  uint8_t sign[256];
+  char * text;
 } auth_cookie_sign;
 
 typedef
 struct auth_responce {
-  uint8_t ticket[256];
+  char * text;
 } auth_responce;
 
 

@@ -39,23 +39,36 @@ enum corpc_channel_state {
   corpc_channel_state_disconnecting = 5,
 } corpc_channel_state;
 
-
 const char * corpc_channel_state_string(
     enum corpc_channel_state state);
 
 
+
+
 typedef
 enum corpc_stream_state {
-  corpc_stream_state_idle,
-  corpc_stream_state_opening,
-  corpc_stream_state_opened,
-  corpc_stream_state_closing,
-  corpc_stream_state_closed,
+  corpc_stream_created = 0,
+  corpc_stream_opening,
+  corpc_stream_too_many_streams,
+  corpc_stream_no_such_service,
+  corpc_stream_no_such_method,
+  corpc_stream_local_internal_error,
+  corpc_stream_remote_internal_error,
+  corpc_stream_protocol_error,
+  corpc_stream_established,
+  corpc_stream_closed,
+  corpc_stream_closed_by_remote_party,
 } corpc_stream_state;
-
 
 const char * corpc_stream_state_string(
     enum corpc_stream_state state);
+
+
+
+
+
+
+
 
 
 

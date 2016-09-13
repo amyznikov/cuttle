@@ -36,8 +36,6 @@ const char * corpc_channel_state_string(enum corpc_channel_state state)
       return "accepted";
     case corpc_channel_state_disconnecting:
       return "disconnecting";
-    default:
-    break;
   }
   return "bug:invalid-channel-state";
 }
@@ -45,18 +43,28 @@ const char * corpc_channel_state_string(enum corpc_channel_state state)
 const char * corpc_stream_state_string(enum corpc_stream_state state)
 {
   switch ( state ) {
-    case corpc_stream_state_idle :
-      return "idle";
-    case corpc_stream_state_opening :
+    case corpc_stream_created :
+      return "created";
+    case corpc_stream_opening :
       return "opening";
-    case corpc_stream_state_opened :
-      return "opened";
-    case corpc_stream_state_closing :
-      return "closing";
-    case corpc_stream_state_closed :
+    case corpc_stream_too_many_streams:
+      return "closed:too_many_streams";
+    case corpc_stream_no_such_service:
+      return "closed:no_such_service";
+    case corpc_stream_no_such_method:
+      return "closed:no_such_method";
+    case corpc_stream_local_internal_error:
+      return "closed:local_internal_error";
+    case corpc_stream_remote_internal_error:
+      return "closed:remote_internal_error";
+    case corpc_stream_protocol_error:
+      return "closed:protocol_error";
+    case corpc_stream_established :
+      return "established";
+    case corpc_stream_closed :
       return "closed";
-    default :
-      break;
+    case corpc_stream_closed_by_remote_party :
+      return "closed:by_remote_party";
   }
   return "bug:invalid-stream-state";
 }
@@ -133,11 +141,20 @@ enum corpc_stream_state corpc_get_stream_state(const corpc_stream * st)
 
 void corpc_set_stream_state(struct corpc_stream * st, corpc_stream_state state)
 {
+  corpc_stream_state oldstate = st->state;
+  CF_NOTICE("%s -> %s", corpc_stream_state_string(oldstate), corpc_stream_state_string(state));
+
   st->state = state;
   if ( st->channel ) {
     co_event_set(st->channel->stream_event);
   }
 }
+
+void * corpc_stream_get_channel_client_context(const corpc_stream * stream)
+{
+  return corpc_channel_get_client_context(stream->channel);
+}
+
 
 
 bool corpc_stream_write(struct corpc_stream * st, const corpc_msg * msg)
@@ -195,10 +212,18 @@ static void on_create_stream_request(corpc_channel * channel, comsg ** msgp)
   const struct corpc_service_method * method = NULL;
   corpc_stream * st = NULL;
 
+  uint16_t did = (*msgp)->hdr.sid;
+  uint16_t sid = 0;
+
+  create_stream_responce_code status =
+        create_stream_responce_internal_error;
+
+
   co_mutex_lock(&channel->mtx);
 
   if ( ccarray_size(&channel->streams) >= ccarray_capacity(&channel->streams) ) {
     CF_CRITICAL("Too many streams");
+    status = create_stream_responce_no_stream_resources;
     goto end;
   }
 
@@ -218,6 +243,7 @@ static void on_create_stream_request(corpc_channel * channel, comsg ** msgp)
 
   if ( !service ) {
     CF_CRITICAL("Requested service '%s' not found", service_name);
+    status = create_stream_responce_no_service;
     goto end;
   }
 
@@ -231,57 +257,104 @@ static void on_create_stream_request(corpc_channel * channel, comsg ** msgp)
 
   if ( !method ) {
     CF_CRITICAL("Requested method '%s' on service '%s' not found", method_name, service_name);
+    status = create_stream_responce_no_method;
     goto end;
   }
 
 
   st = corpc_stream_new(&(struct corpc_stream_opts ) {
         .channel = channel,
-        .state = corpc_stream_state_opening,
+        .state = corpc_stream_opening,
         .sid = gensid(),
-        .did = (*msgp)->hdr.sid
+        .did = did
       });
 
   if ( !st ) {
     CF_CRITICAL("corpc_stream_new() fails");
+    status = create_stream_responce_internal_error;
     goto end;
   }
+
+  ccarray_ppush_back(&channel->streams, st);
 
 
   // fixme: void * pointer required, create a sub routine ?
   if ( !co_schedule((void (*)(void*))method->proc, st, CORPC_STREAM_DEFAULT_STACK_SIZE) ) {
     CF_CRITICAL("co_schedule() fails");
+    status = create_stream_responce_internal_error;
     goto end;
   }
 
+  sid = st->sid;
+  status = create_stream_responce_ok;
 
 end:
 
-  co_mutex_unlock(&channel->mtx);
+  if ( st ) {
+    if ( status != create_stream_responce_ok ) {
+      ccarray_erase_item(&channel->streams, &st);
+    }
+    else {
+      corpc_set_stream_state(st, corpc_stream_established);
+    }
+  }
 
+  corpc_proto_send_create_stream_responce(channel->ssl_sock, sid, did, status);
+
+  co_mutex_unlock(&channel->mtx);
 }
+
 
 static void on_create_stream_responce(corpc_channel * channel, comsg ** msgp)
 {
   corpc_stream * st;
+  corpc_stream_state state;
+
+  uint16_t sid = (*msgp)->hdr.did;
+  uint16_t did = (*msgp)->hdr.sid;
 
   co_mutex_lock(&channel->mtx);
 
-  if ( !(st = find_stream_by_sid(channel, (*msgp)->hdr.did)) ) {
-    CF_CRITICAL("find_stream_by_sid(did=%u) fails", (*msgp)->hdr.did);
+  if ( !(st = find_stream_by_sid(channel, sid)) ) {
+    CF_CRITICAL("find_stream_by_sid(sid=%u) fails", sid);
   }
-  else if ( !ccfifo_is_full(&st->rxq) ) {
-    ccfifo_push(&st->rxq, msgp);
-    *msgp = NULL;
-    co_event_set(channel->stream_event);
+  else if ( st->state != corpc_stream_opening ) {
+    CF_CRITICAL("BUG: Invalid stream state : sid=%u state=%s", sid, corpc_stream_state_string(st->state));
   }
   else {
-    // app or party bug
-    CF_FATAL("ccfifo is full for sid=%u", st->sid);
-    exit(1);
+
+    switch ( (*msgp)->create_stream_responce.details.status ) {
+      case create_stream_responce_ok :
+        state = corpc_stream_established;
+        st->did = did;
+      break;
+      case create_stream_responce_no_stream_resources :
+        state = corpc_stream_too_many_streams;
+      break;
+      case create_stream_responce_no_service :
+        state = corpc_stream_no_such_service;
+      break;
+      case create_stream_responce_no_method :
+        state = corpc_stream_no_such_method;
+      break;
+      case create_stream_responce_internal_error :
+        state = corpc_stream_remote_internal_error;
+      break;
+      case create_stream_responce_protocol_error :
+        default :
+        state = corpc_stream_protocol_error;
+      break;
+    }
+
+    if ( state != corpc_stream_established ) {
+      CF_CRITICAL("Create stream %u fails: %s", sid, corpc_stream_state_string(state));
+    }
+
+    corpc_set_stream_state(st, state);
   }
 
   co_mutex_unlock(&channel->mtx);
+
 }
 
 static void on_close_stream_notify(corpc_channel * channel, comsg ** msgp)
@@ -292,9 +365,18 @@ static void on_close_stream_notify(corpc_channel * channel, comsg ** msgp)
 
   if ( !(st = find_stream_by_sid(channel, (*msgp)->hdr.did)) ) {
     CF_CRITICAL("find_stream_by_sid(did=%u) fails", (*msgp)->hdr.did);
+
+    CF_CRITICAL("<STREAM LIST>:");
+
+    for ( size_t i = 0, n = ccarray_size(&channel->streams); i < n; ++i ) {
+      corpc_stream * tmp = ccarray_ppeek(&channel->streams, i);
+      CF_CRITICAL("  stream[%zu] : sid=%u did=%u %s", i, tmp->sid, tmp->did, corpc_stream_state_string(tmp->state));
+    }
+
+    CF_CRITICAL("</STREAM LIST>:");
   }
   else {
-    corpc_set_stream_state(st, corpc_stream_state_closed);
+    corpc_set_stream_state(st, corpc_stream_closed_by_remote_party);
   }
 
   co_mutex_unlock(&channel->mtx);
@@ -308,6 +390,16 @@ static void on_data_message(corpc_channel * channel, comsg ** msgp)
 
   if ( !(st = find_stream_by_sid(channel, (*msgp)->hdr.did)) ) {
     CF_CRITICAL("find_stream_by_sid(did=%u) fails", (*msgp)->hdr.did);
+
+    CF_CRITICAL("<STREAM LIST>:");
+
+    for ( size_t i = 0, n = ccarray_size(&channel->streams); i < n; ++i ) {
+      corpc_stream * tmp = ccarray_ppeek(&channel->streams, i);
+      CF_CRITICAL("  stream[%zu] : sid=%u did=%u %s", i, tmp->sid, tmp->did, corpc_stream_state_string(tmp->state));
+    }
+
+    CF_CRITICAL("</STREAM LIST>:");
+
   }
   else if ( !ccfifo_is_full(&st->rxq) ) {
     ccfifo_push(&st->rxq, msgp);
@@ -328,16 +420,15 @@ static void corpc_channel_thread(void * arg)
 {
   struct corpc_channel * channel = arg;
   co_socket * socket = NULL;
-  co_ssl_socket * ssl_socket = NULL;
 
   comsg * msg = NULL;
 
+  CF_INFO("ENTER channel=%p state=%s", channel, corpc_channel_state_string(channel->state));
 
   bool fok = true;
 
   switch ( channel->state ) {
     case corpc_channel_state_connecting : {
-      ssl_socket = channel->ssl_sock;
       corpc_set_channel_state(channel, corpc_channel_state_connected, 0);
     }
     break;
@@ -367,7 +458,7 @@ static void corpc_channel_thread(void * arg)
 
   msg = malloc(sizeof(*msg));
 
-  while ( corpc_proto_recv_msg(ssl_socket, msg) ) {
+  while ( corpc_proto_recv_msg(channel->ssl_sock, msg) ) {
 
 
     switch ( msg->hdr.code ) {
@@ -404,7 +495,9 @@ end:
   free(msg);
 
   co_socket_close(&socket, false);
-  co_ssl_socket_close(&ssl_socket, false);
+  co_ssl_socket_close(&channel->ssl_sock, false);
+
+  CF_INFO("FINIDHED channel=%p", channel);
 
 }
 
@@ -415,13 +508,21 @@ void corpc_channel_cleanup(struct corpc_channel * channel)
 {
   free(channel->connect_opts.connect_address), channel->connect_opts.connect_address = NULL;
 
+  CF_NOTICE("NB_STREAMS=%zu", ccarray_size(&channel->streams));
+
   for ( size_t i = 0, n = ccarray_size(&channel->streams); i < n; ++i ) {
+    CF_NOTICE("C corpc_stream_destroy(%zu)", i);
     corpc_stream_destroy(ccarray_peek(&channel->streams, i)); // fixme: this looks crazy, can not release chanell having active streams
+    CF_NOTICE("R corpc_stream_destroy(%zu)", i);
   }
 
+  CF_NOTICE("C ccarray_cleanup(&channel->streams)");
   ccarray_cleanup(&channel->streams);
+  CF_NOTICE("C co_event_delete(&channel->stream_event)");
   co_event_delete(&channel->stream_event);
+  CF_NOTICE("C co_mutex_destroy(&channel->mtx)");
   co_mutex_destroy(&channel->mtx);
+  CF_NOTICE("LEAVE");
 }
 
 
@@ -485,8 +586,6 @@ corpc_channel * corpc_channel_new(const corpc_channel_opts  * opts)
     goto end;
   }
 
-  CF_DEBUG("channel->state=%s", corpc_channel_state_string(channel->state));
-
   fok = true;
 
 end:
@@ -502,8 +601,11 @@ end:
 void corpc_channel_relase(corpc_channel ** channel)
 {
   if ( channel && *channel ) {
+    CF_DEBUG("C corpc_channel_cleanup(*channel)");
     corpc_channel_cleanup(*channel);
+    CF_DEBUG("C free(*channel)");
     free(*channel), *channel = NULL;
+    CF_DEBUG("R free(*channel)");
   }
 }
 
@@ -593,6 +695,7 @@ corpc_channel * corpc_channel_accept(corpc_listening_port * clp, const co_socket
   channel->listen_opts.ssl_ctx = clp->base.ssl_ctx;
 
   if ( !co_schedule(corpc_channel_thread, channel, CORPC_CHANNEL_THREAD_STACK_SIZE) ) {
+    CF_CRITICAL("co_schedule(corpc_channel_thread) fails: %s", strerror(errno));
     channel->state = corpc_channel_state_idle;
     goto end;
   }
@@ -620,45 +723,29 @@ void corpc_close_channel(corpc_channel * channel)
 
 static bool corpc_request_open_stream(corpc_channel * channel, corpc_stream * st, const char * service, const char * method)
 {
-  (void)(service);
-  (void)(method);
-
   co_event_waiter * w = NULL;
-  comsg * msg = NULL;
 
   bool fok = false;
 
   if ( !(w = co_event_add_waiter(channel->stream_event)) ) {
+    CF_CRITICAL("co_event_add_waiter() fails:%s", strerror(errno) );
     goto end;
   }
 
   if ( !corpc_proto_send_create_stream_request(st->channel->ssl_sock, st->sid, service, method) ) {
+    CF_CRITICAL("corpc_proto_send_create_stream_request() fails");
     goto end;
   }
 
-  while ( corpc_channel_established(channel) && ccfifo_is_empty(&st->rxq) ) {
+  while ( st->state == corpc_stream_opening ) {
     co_event_wait(w, -1);
   }
 
-  if ( !(msg = ccfifo_ppop(&st->rxq)) ) {
-    CF_ERROR("ccfifo_ppop() st=%d fails", st->sid);
+  if ( st->state != corpc_stream_established ) {
+    CF_CRITICAL("NOT ESTABLISHED");
     goto end;
   }
 
-  if ( msg->hdr.code != co_msg_create_stream_resp ) {
-    CF_ERROR("invalid message code %u when expected co_msg_create_stream_resp=%u st=%d", msg->hdr.code,
-        co_msg_create_stream_resp, st->sid);
-    goto end;
-  }
-
-  if ( msg->create_stream_responce.details.status != 0 ) {
-    CF_ERROR("remote party refused creating new stream. responce status=%u",
-        msg->create_stream_responce.details.status);
-    goto end;
-  }
-
-  st->did = msg->hdr.sid;
-  st->state = corpc_stream_state_opened;
   fok = true;
 
 end:
@@ -678,18 +765,20 @@ corpc_stream * corpc_open_stream(corpc_channel * channel, const corpc_open_strea
   co_mutex_lock(&channel->mtx);
 
   if ( ccarray_size(&channel->streams) >= ccarray_capacity(&channel->streams) ) {
+    CF_CRITICAL("NO STREAM RESOURCES");
     errno = ENOSR;
     goto end;
   }
 
   st = corpc_stream_new(&(corpc_stream_opts ) {
         .channel = channel,
-        .state = corpc_stream_state_opening,
+        .state = corpc_stream_opening,
         .sid = gensid(),
         .did = 0,
       });
 
   if ( !st ) {
+    CF_CRITICAL("corpc_stream_new() fails");
     goto end;
   }
 
@@ -697,12 +786,19 @@ corpc_stream * corpc_open_stream(corpc_channel * channel, const corpc_open_strea
 
   // make sure connection is established
   if ( !corpc_channel_open_internal(channel, false) ) {
+    CF_CRITICAL("corpc_channel_open_internal() fails");
     goto end;
   }
 
   co_mutex_unlock(&channel->mtx);
   fok = corpc_request_open_stream(channel, st, opts->service, opts->method);
   co_mutex_lock(&channel->mtx);
+
+  if( !fok ) {
+    CF_CRITICAL("corpc_request_open_stream() fails");
+  }
+
+
 
 end:
 
@@ -723,7 +819,7 @@ void corpc_close_stream(corpc_stream ** stp )
     corpc_stream * st = *stp;
     corpc_channel * channel = st->channel;
 
-    if ( corpc_proto_send_close_stream(st->channel->ssl_sock, st->sid, st->sid, 0) ) {
+    if ( !corpc_proto_send_close_stream(st->channel->ssl_sock, st->sid, st->did, 0) ) {
       CF_CRITICAL("corpc_proto_send_close_stream() fails");
     }
 
@@ -735,14 +831,69 @@ void corpc_close_stream(corpc_stream ** stp )
   }
 }
 
-bool corpc_channel_read(struct corpc_stream * st, corpc_msg * msg)
+bool corpc_channel_read(struct corpc_stream * st, corpc_msg * ccmsg)
 {
+  corpc_channel * channel = st->channel;
+  co_event_waiter * w = NULL;
+  struct comsg * comsg = NULL;
 
+  bool fok = false;
+
+  // CF_DEBUG("ENTER");
+
+
+  if ( !(w = co_event_add_waiter(channel->stream_event)) ) {
+    CF_CRITICAL("co_event_add_waiter() fails");
+    goto end;
+  }
+
+  // fixme: co_event really required a co_mutex due to multi-core scheduling
+  CF_DEBUG("Start wait for data message st->state=%s", corpc_stream_state_string(st->state));
+
+  while ( ccfifo_is_empty(&st->rxq) && (st->state == corpc_stream_established || st->state == corpc_stream_opening) ) {
+    co_event_wait(w, -1);
+  }
+
+  if ( !(comsg = ccfifo_ppop(&st->rxq)) ) {
+    CF_ERROR("ccfifo_ppop() st=%d fails. st->state=%s", st->sid, corpc_stream_state_string(st->state) );
+    goto end;
+  }
+
+  if ( comsg->hdr.code != co_msg_data ) {
+    CF_CRITICAL("invalid message code %u when expected co_msg_data=%u st=%d", comsg->hdr.code,
+        co_msg_data, st->sid);
+    goto end;
+  }
+
+  if ( !(ccmsg->data = malloc(comsg->data.hdr.pldsize)) ) {
+    CF_CRITICAL("malloc(ccmsg->data) fails: %s", strerror(errno));
+    goto end;
+  }
+
+  memcpy(ccmsg->data, comsg->data.details.bits, ccmsg->size = comsg->data.hdr.pldsize);
+
+  fok = true;
+
+end:
+
+  co_event_remove_waiter(channel->stream_event, w);
+
+  free(comsg);
+
+  //CF_DEBUG("LEAVE: fok=%d", fok);
+
+  return fok;
 }
 
 bool corpc_channel_write(struct corpc_stream * st, const corpc_msg * msg)
 {
+  bool fok;
 
+  co_mutex_lock(&st->channel->mtx);
+  fok = corpc_proto_send_data(st->channel->ssl_sock, st->sid, st->did, msg->data, msg->size);
+  co_mutex_unlock(&st->channel->mtx);
+
+  return fok;
 }
 
 

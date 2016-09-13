@@ -7,7 +7,12 @@
 
 #include <stdio.h>
 #include <unistd.h>
+
+#include <cuttle/debug.h>
+#include <cuttle/sockopt.h>
+#include <cuttle/ssl/init-ssl.h>
 #include <cuttle/corpc/corpc-server.h>
+
 #include "../proto/auth.h"
 #include "../proto/mail.h"
 
@@ -56,32 +61,43 @@ static void on_smaster_authenticate(corpc_stream * st)
   struct auth_cookie_sign auth_cookie_sign;
   struct auth_responce auth_responce;
 
+
+  CF_DEBUG("ENTER");
+
   if ( !(cli = corpc_stream_get_channel_client_context(st)) ) {
-    // something bugged
+    CF_CRITICAL("corpc_stream_get_channel_client_context() fails");
     goto end;
   }
 
   if ( !corpc_stream_read_auth_request(st, &auth_request) ) {
-    // something wrong
+    CF_CRITICAL("corpc_stream_read_auth_request() fails");
     goto end;
   }
 
+  CF_DEBUG("GOT auth_request='%s'", auth_request.text);
+
+  auth_cookie.text = strdup("THIS IS AUTH COOKIE");
   if ( !corpc_stream_write_auth_cookie(st, &auth_cookie) ) {
-    // something wrong
+    CF_CRITICAL("corpc_stream_write_auth_cookie() fails");
     goto end;
   }
 
   if ( !corpc_stream_read_auth_cookie_sign(st, &auth_cookie_sign)) {
-    // something wrong
+    CF_CRITICAL("corpc_stream_read_auth_cookie_sign() fails");
     goto end;
   }
 
+  CF_DEBUG("GOT auth_cookie_sign='%s'", auth_cookie_sign.text);
+
+  auth_responce.text = strdup("THIS IS AUTH_RESPONCE");
   if ( !corpc_stream_write_auth_responce(st, &auth_responce)) {
-    // something wrong
+    CF_CRITICAL("corpc_stream_write_auth_responce() fails");
     goto end;
   }
 
 end:
+
+  CF_DEBUG("LEAVE");
 
   return;
 }
@@ -107,9 +123,9 @@ static void on_smaster_get_mail(corpc_stream * st)
 
 
 static corpc_service smaster_service = {
-  .name = "smaster",
+  .name = "auth",
   .methods = {
-    { .name = "authenticate", .proc = on_smaster_authenticate },
+    { .name = "authenicate", .proc = on_smaster_authenticate },
     { .name = "get-mail", .proc = on_smaster_get_mail},
     { .name = NULL },
   }
@@ -145,15 +161,38 @@ int main(/*int argc, char *argv[]*/)
   corpc_server * server = NULL;
   bool fok = false;
 
+
+  cf_set_logfilename("stderr");
+  cf_set_loglevel(CF_LOG_DEBUG);
+
+  CF_DEBUG("C cf_ssl_initialize()");
+
+  if ( !cf_ssl_initialize() ) {
+    CF_FATAL("cf_ssl_initialize() fails");
+    goto end;
+  }
+
+
+
+  CF_DEBUG("C co_scheduler_init()");
+  if ( !co_scheduler_init(2) ) {
+    CF_FATAL("co_scheduler_init() fails");
+    goto end;
+  }
+
+
+  CF_DEBUG("C corpc_server_new()");
   server = corpc_server_new(
       &(struct corpc_server_opts ) {
         .ssl_ctx = NULL
       });
 
   if ( !server ) {
+    CF_FATAL("corpc_server_new() fails");
     goto end;
   }
 
+  CF_DEBUG("C corpc_server_add_port()");
   fok = corpc_server_add_port(server,
       &(struct corpc_listening_port_opts ) {
 
@@ -175,12 +214,17 @@ int main(/*int argc, char *argv[]*/)
 
 
   if ( !fok ) {
+    CF_FATAL("corpc_server_add_port() fails");
     goto end;
   }
 
+  CF_DEBUG("C corpc_server_start()");
   if ( !(fok = corpc_server_start(server)) ) {
+    CF_FATAL("corpc_server_start() fails");
     goto end;
   }
+
+  CF_DEBUG("Server started");
 
   while ( 42 ) {
     sleep(1);
@@ -188,5 +232,6 @@ int main(/*int argc, char *argv[]*/)
 
 end:
 
+  CF_DEBUG("Finished");
   return 0;
 }

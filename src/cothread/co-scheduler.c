@@ -1202,6 +1202,13 @@ ssize_t co_socket_recv(co_socket * cc, void * buf, size_t buf_size, int flags)
   epoll_dequeue(&cc->e, w);
   remove_waiter(current_core, node);
 
+  if ( size == 0 ) {
+    errno = ECONNRESET;
+  }
+  else if ( size < 0 ) {
+    errno = so_get_error(cc->e.so);
+  }
+
   return size;
 }
 
@@ -1301,6 +1308,12 @@ ssize_t co_recv(int so, void * buf, size_t buf_size, int flags)
     if ( !(co_io_wait(so, EPOLLIN, -1) & EPOLLIN) ) {
       break;
     }
+  }
+  if ( size == 0 ) {
+    errno = ECONNRESET;
+  }
+  else if ( size < 0 ) {
+    errno = so_get_error(so);
   }
   return size;
 }
