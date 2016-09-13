@@ -6,9 +6,11 @@
  */
 
 
-#include "corpc-proto.h"
-#include <arpa/inet.h>
+#include <cuttle/debug.h>
 #include <cuttle/hash/crc32.h>
+#include <arpa/inet.h>
+#include <alloca.h>
+#include "corpc-proto.h"
 
 
 #define co_proto_recv_chunk(ssl_sock, data) \
@@ -57,52 +59,89 @@ bool corpc_proto_recv_msg(co_ssl_socket * ssl_sock, comsg * msgp)
   uint32_t crc_received, crc_actual;
 
   if ( !co_proto_recv_chunk(ssl_sock, &msgp->hdr) ) {
+    CF_CRITICAL("co_proto_recv_chunk() fails");
     goto end;
   }
 
   ntohdr(&msgp->hdr);
 
   switch (msgp->hdr.code) {
+
     case co_msg_create_stream_req :
-      if ( msgp->hdr.size != sizeof(msgp->create_stream_request.details) ) {
+
+      if ( msgp->hdr.size > CORPC_MAX_PAYLOAD_SIZE ) {
+        CF_CRITICAL("msgp->hdr.size is too large: %u", msgp->hdr.size);
         goto end;
       }
-      if ( !co_proto_recv_chunk(ssl_sock, &msgp->create_stream_request.details) ) {
+
+      if ( (size = co_proto_read(ssl_sock, &msgp->create_stream_request.details, msgp->hdr.size)) <= 0 ) {
+        CF_CRITICAL("co_proto_read() fails: size=%zd", size);
         goto end;
       }
-      msgp->create_stream_request.details.x = ntohs(msgp->create_stream_request.details.x);
+
+      msgp->create_stream_request.details.service_name_length = ntohs(
+          msgp->create_stream_request.details.service_name_length);
+      msgp->create_stream_request.details.method_name_length = ntohs(
+          msgp->create_stream_request.details.method_name_length);
+
     break;
 
+
+
+
     case co_msg_create_stream_resp:
+
       if ( msgp->hdr.size != sizeof(msgp->create_stream_responce.details) ) {
+        CF_CRITICAL("msgp->hdr.size is too large: %u. Expected %zu", msgp->hdr.size, sizeof(msgp->create_stream_responce.details));
         goto end;
       }
+
       if ( !co_proto_recv_chunk(ssl_sock, &msgp->create_stream_responce.details) ) {
+        CF_CRITICAL("co_proto_recv_chunk() fails");
         goto end;
       }
+
       msgp->create_stream_responce.details.status = ntohs(msgp->create_stream_responce.details.status);
       break;
 
+
+
+
     case co_msg_close_stream_req:
+
       if ( msgp->hdr.size != sizeof(msgp->close_stream.details) ) {
+        CF_CRITICAL("msgp->hdr.size is too large: %u. Expected %zu", msgp->hdr.size, sizeof(msgp->close_stream.details));
         goto end;
       }
+
       if ( !co_proto_recv_chunk(ssl_sock, &msgp->close_stream.details) ) {
+        CF_CRITICAL("co_proto_recv_chunk() fails");
         goto end;
       }
+
       msgp->close_stream.details.status = ntohs(msgp->close_stream.details.status);
       break;
 
+
+
+
     case co_msg_data:
+
       if ( msgp->hdr.size > CORPC_MAX_PAYLOAD_SIZE ) {
+        CF_CRITICAL("msgp->hdr.size is too large: %u", msgp->hdr.size);
         goto end;
       }
-      if ( (size = co_proto_read(ssl_sock, msgp->data.details.bits, CORPC_MAX_PAYLOAD_SIZE)) <= 0 ) {
+
+      if ( (size = co_proto_read(ssl_sock, &msgp->data.details, msgp->hdr.size)) <= 0 ) {
+        CF_CRITICAL("co_proto_read() fails: size=%zd", size);
         goto end;
       }
+
     break;
 
+
     default:
+      CF_CRITICAL("Invalid msgp->hdr.code=%u", msgp->hdr.code);
       goto end;
   }
 
@@ -110,6 +149,7 @@ bool corpc_proto_recv_msg(co_ssl_socket * ssl_sock, comsg * msgp)
   crc_actual = calc_crc(&msgp->hdr, sizeof(msgp->hdr) + msgp->hdr.size);
 
   if ( crc_actual != crc_received ) {
+    CF_CRITICAL("CRC NOT MATCH");
     goto end;
   }
 
@@ -120,22 +160,33 @@ end:
   return fok;
 }
 
-bool corpc_proto_send_create_stream_request(co_ssl_socket * ssl_sock, uint16_t sid)
+
+
+
+bool corpc_proto_send_create_stream_request(co_ssl_socket * ssl_sock, uint16_t sid, const char * service, const char * method)
 {
-  struct comsg_create_stream_request msg = {
-    .hdr = {
-      .code = htons(co_msg_create_stream_req),
-      .size = htons(sizeof(msg.details)),
-      .sid = htons(sid)
-    },
-    .details = {
-      .x = 1
-    }
-  };
+  struct comsg_create_stream_request * msg;
 
-  set_crc(&msg.hdr, sizeof(msg));
+  size_t service_name_length = strlen(service);
+  size_t method_name_length = strlen(method);
+  size_t payload_size = sizeof(msg->details) + service_name_length + method_name_length;
+  size_t msgsize = offsetof(struct comsg_create_stream_request, details) + payload_size;
 
-  return co_ssl_socket_send(ssl_sock, &msg, sizeof(msg));
+  msg = alloca(msgsize);
+  msg->hdr.code = htons(co_msg_create_stream_req);
+  msg->hdr.crc = 0;
+  msg->hdr.sid = htons(sid);
+  msg->hdr.did = 0;
+  msg->hdr.size = htons(payload_size);
+  msg->details.service_name_length = htons(service_name_length);
+  msg->details.method_name_length = htons(method_name_length);
+
+  memcpy(msg->details.pack, service, service_name_length);
+  memcpy(msg->details.pack + service_name_length, method, method_name_length);
+
+  set_crc(&msg->hdr, msgsize);
+
+  return co_ssl_socket_send(ssl_sock, msg, msgsize);
 }
 
 

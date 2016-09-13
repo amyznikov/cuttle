@@ -778,10 +778,7 @@ bool co_mutex_init(co_mutex * mutex)
 
   pthread_mutex_lock(&comtx_init_lock);
 
-  if ( mutex->data != NULL ) {
-    fok = true;
-    goto end;
-  }
+  mutex->data = NULL;
 
   if ( !(mtx = calloc(1, sizeof(struct comtx))) ) {
     goto end;
@@ -808,9 +805,7 @@ bool co_mutex_init(co_mutex * mutex)
 end:
 
   if ( fok ) {
-    if ( !mutex->data ) {
-      mutex->data = mtx;
-    }
+    mutex->data = mtx;
   }
   else if ( mtx ) {
     if ( mtx->e.so != -1 ) {
@@ -1074,6 +1069,7 @@ void co_socket_close(co_socket ** cc, bool abort_conn)
 co_socket * co_socket_connect_new(int so, const struct sockaddr *address, socklen_t addrslen, int tmo_ms)
 {
   co_socket * cc = NULL;
+
   if ( (cc = co_socket_new(so)) && !co_socket_connect(cc, address, addrslen, tmo_ms) ) {
     co_socket_free(&cc);
   }
@@ -1100,11 +1096,12 @@ bool co_socket_connect(co_socket * cc, const struct sockaddr *address, socklen_t
       co_call(current_core->main);
     } while ( !(w->revents & (EPOLLOUT | EPOLLERR)) && (w->tmo == -1 || cf_get_monotic_ms() <= w->tmo) );
 
-    if ( (w->revents & EPOLLOUT) ) {
+    if ( !(w->revents & EPOLLERR) ) {
       status = 0;
     }
     else {
       errno = so_get_error(cc->e.so);
+      status = -1;
     }
   }
 
@@ -1344,12 +1341,22 @@ ssize_t co_write(int fd, const void *buf, size_t buf_size)
 
 int co_connect(int so, const struct sockaddr *address, socklen_t address_len)
 {
+  uint32_t revents;
   int status;
   errno = 0;
   if ( (status = connect(so, address, address_len)) == -1 && errno == EINPROGRESS ) {
     do { // wait for EPOLLOUT
-    } while ( !(co_io_wait(so, EPOLLOUT, -1) & (EPOLLOUT | EPOLLERR)) );
+    } while ( !((revents = co_io_wait(so, EPOLLOUT, -1)) & (EPOLLOUT | EPOLLERR)) );
+
+    if ( !(revents & EPOLLERR) ) {
+      status = 0;
+    }
+    else {
+      errno = so_get_error(so);
+      status = -1;
+    }
   }
+
   return status;
 }
 

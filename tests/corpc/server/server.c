@@ -61,22 +61,22 @@ static void on_smaster_authenticate(corpc_stream * st)
     goto end;
   }
 
-  if ( !corpc_stream_recv_auth_request(st, &auth_request) ) {
+  if ( !corpc_stream_read_auth_request(st, &auth_request) ) {
     // something wrong
     goto end;
   }
 
-  if ( !corpc_stream_send_auth_cookie(st, &auth_cookie) ) {
+  if ( !corpc_stream_write_auth_cookie(st, &auth_cookie) ) {
     // something wrong
     goto end;
   }
 
-  if ( !corpc_stream_recv_auth_cookie_sign(st, &auth_cookie_sign)) {
+  if ( !corpc_stream_read_auth_cookie_sign(st, &auth_cookie_sign)) {
     // something wrong
     goto end;
   }
 
-  if ( !corpc_stream_send_auth_responce(st, &auth_responce)) {
+  if ( !corpc_stream_write_auth_responce(st, &auth_responce)) {
     // something wrong
     goto end;
   }
@@ -97,7 +97,7 @@ static void on_smaster_get_mail(corpc_stream * st)
     // something wrong
   }
   else {
-    corpc_stream_send_mail(st, &mail);
+    corpc_stream_write_mail(st, &mail);
   }
 
   mail_cleanup(&mail);
@@ -131,7 +131,7 @@ void send_some_smaster_event_notify(client_context * cli)
 
   if ( st ) {
     corpc_stream_write(st, &msg);
-    corpc_close_stream(st);
+    corpc_close_stream(&st);
   }
 
   corpc_msg_clean(&msg);

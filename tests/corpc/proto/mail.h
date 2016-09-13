@@ -32,7 +32,10 @@ struct mail {
 void mail_init(struct mail * mail);
 void mail_cleanup(struct mail * mail);
 
-bool corpc_stream_send_mail(corpc_stream * st, const struct mail * mail);
+bool corpc_pack_mail(const struct mail * mail, corpc_msg * msg);
+bool corpc_unpack_mail(const corpc_msg * msg, struct mail * mail);
+
+bool corpc_stream_write_mail(corpc_stream * st, const struct mail * mail);
 bool corpc_stream_read_mail(corpc_stream * st, struct mail * mail);
 
 

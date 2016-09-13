@@ -22,8 +22,8 @@ incdir  = $(prefix)/include
 libdir  = $(prefix)/lib
 
 INCLUDES+= -I. -I$(CURDIR)/../../../include
-SOURCES = $(wildcard *.c)
-HEADERS = $(wildcard *.h)
+SOURCES = $(wildcard *.c ../proto/*.c)
+HEADERS = $(wildcard *.h ../proto/*.h)
 MODULES = $(foreach s,$(SOURCES),$(addsuffix .o,$(basename $(s))))
 
 

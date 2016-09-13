@@ -47,7 +47,9 @@ typedef
 struct comsg_create_stream_request {
   struct comsghdr hdr;
   struct {
-    uint16_t x;
+    uint16_t service_name_length;
+    uint16_t method_name_length;
+    uint8_t  pack[];
   } details;
 } comsg_create_stream_request;
 
@@ -88,7 +90,7 @@ struct comsg {
 } comsg;
 
 bool corpc_proto_recv_msg(co_ssl_socket * ssl_sock, comsg * msgp);
-bool corpc_proto_send_create_stream_request(co_ssl_socket * ssl_sock, uint16_t sid);
+bool corpc_proto_send_create_stream_request(co_ssl_socket * ssl_sock, uint16_t sid, const char * service, const char * method);
 bool corpc_proto_send_create_stream_reply(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did, uint16_t status);
 bool corpc_proto_send_close_stream(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did, uint16_t status);
 bool corpc_proto_send_data(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did, const void * data, size_t size);

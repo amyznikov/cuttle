@@ -104,7 +104,7 @@ void * corpc_channel_get_client_context(const corpc_channel * channel);
 
 corpc_stream * corpc_open_stream(corpc_channel * channel, const corpc_open_stream_opts * opts);
 
-void corpc_close_stream(corpc_stream * stp);
+void corpc_close_stream(corpc_stream ** stp);
 
 //void corpc_stream_addref(corpc_stream * st);
 //void corpc_stream_release(corpc_stream ** st);

@@ -242,7 +242,7 @@ co_ssl_socket * co_ssl_socket_accept(co_socket ** cc, SSL_CTX * ssl_ctx)
 {
   co_ssl_socket * ssl_sock = NULL;
 
-  if ( !(ssl_sock = co_ssl_socket_new(cc, ssl_ctx)) ) {
+  if ( !(ssl_sock = co_ssl_socket_new(*cc, ssl_ctx)) ) {
     CF_SSL_ERR(CF_SSL_ERR_CUTTLE, "co_ssl_socket_new() fails");
   }
   else if ( SSL_accept(ssl_sock->ssl) != 1 ) {
