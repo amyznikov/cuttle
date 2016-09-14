@@ -150,7 +150,7 @@ static void client_main(void * arg )
 
   CF_DEBUG("channel->state = %s", corpc_channel_state_string(corpc_get_channel_state(channel)));
 
-  if ( !corpc_open_channel(channel) ) {
+  if ( !corpc_channel_open(channel) ) {
     CF_FATAL("corpc_open_channel() fails");
     goto end;
   }

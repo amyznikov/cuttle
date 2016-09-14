@@ -30,6 +30,14 @@
 #define UNMASKED_EVENTS (EPOLLERR|EPOLLHUP|EPOLLRDHUP)
 #define CREQ_LISTENER_STACK_SIZE   (128*1024)
 
+#define MTX_WAKEUP_WAITING  0x01
+#define MTX_WAKEUP_EVENT    0x02
+#define CO_YIELD            0x04
+
+
+
+#define co_current_time_ms()  cf_get_monotic_ms()
+
 //////////////////////////////////////////////////////////////////////////////////
 // epoll listener
 
@@ -43,11 +51,12 @@ static struct {
 
 struct io_waiter {
   int64_t tmo;
-  struct io_waiter * prev, * next;
+  struct io_waiter *prev, *next;
   coroutine_t co;
   uint32_t mask;
   uint32_t events;
   uint32_t revents;
+  uint32_t flags;
 };
 
 enum {
@@ -56,7 +65,7 @@ enum {
 };
 
 struct iorq {
-  struct io_waiter * w;
+  struct io_waiter *head, *tail;
   int so;
   int type;
 };
@@ -131,18 +140,27 @@ static inline int epoll_wait_events(struct epoll_event events[], int nmax)
   return n;
 }
 
-// always insert into head
 static inline void epoll_queue(struct iorq * e, struct io_waiter * w)
 {
   if ( w ) {
 
     epoll_listener_lock();
 
-    if ( e->w ) {
-      e->w->prev = w;
-      w->next = e->w;
+    w->next = NULL;
+
+    if ( !e->tail ) {
+      w->prev = NULL;
     }
-    e->w = w;
+    else {
+      w->prev = e->tail;
+      e->tail->next = w;
+    }
+
+    e->tail = w;
+
+    if ( !e->head ) {
+      e->head = w;
+    }
 
     epoll_listener_unlock();
   }
@@ -154,6 +172,10 @@ static inline void epoll_dequeue(struct iorq * e, struct io_waiter * w)
 
     epoll_listener_lock();
 
+    if ( e->tail == w ) {
+      e->tail = w->prev;
+    }
+
     if ( w->prev ) {
       w->prev->next = w->next;
     }
@@ -162,8 +184,8 @@ static inline void epoll_dequeue(struct iorq * e, struct io_waiter * w)
       w->next->prev = w->prev;
     }
 
-    if ( e->w == w ) {
-      e->w = w->next;
+    if ( e->head == w ) {
+      e->head = w->next;
     }
 
     epoll_listener_unlock();
@@ -199,7 +221,7 @@ static void * epoll_listener_thread(void * arg)
         while ( eventfd_read(e->so, &x) == 0 ) {}
       }
 
-      for ( w = e->w; w; w = w->next ) {
+      for ( w = e->head; w; w = w->next ) {
         if ( ((w->events |= events[i].events) & w->mask) && w->co ) {
           ++c;
         }
@@ -299,7 +321,7 @@ static __thread struct co_scheduler_context
   * current_core = NULL;
 
 
-bool cf_in_cothread(void)
+bool cf_in_co_thread(void)
 {
   return current_core != NULL;
 }
@@ -320,7 +342,7 @@ static void iocb_handler(void * arg)
 {
   struct iocb * cb = arg;
 
-  while ( cb->fn(cb->cookie, cb->e.w->revents) == 0 ) {
+  while ( cb->fn(cb->cookie, cb->e.head->revents) == 0 ) {
     co_call(current_core->main);
   }
 
@@ -355,7 +377,7 @@ static inline int send_schedule_request(struct co_scheduler_context * core, cons
 {
   int32_t status = 0;
 
-  if ( !cf_in_cothread() ) {
+  if ( !cf_in_co_thread() ) {
     if ( send(core->cs[0], rq, sizeof(*rq), MSG_NOSIGNAL) != (ssize_t) sizeof(*rq) ) {
       status = errno;
     }
@@ -429,7 +451,7 @@ static void schedule_request_handler(void * arg)
         cb->cookie = creq.io.callback_arg;
         cb->e.so = creq.io.so;
         cb->e.type = iowait_io;
-        cb->e.w = cclist_peek(cb->node =
+        cb->e.head = cclist_peek(cb->node =
             add_waiter(current_core, &(struct io_waiter ) {
                   .co = co,
                   .mask = creq.io.flags,
@@ -491,7 +513,14 @@ static int walk_waiters_list(int64_t ct, coroutine_t cc[], int ccmax, int64_t * 
       continue;
     }
 
-    if ( w->events & w->mask ) {
+    if ( w->flags & CO_YIELD ) {
+      w->flags &= ~CO_YIELD;
+      tmo = 0;
+      continue;
+    }
+
+
+    if ( (w->events & w->mask) || (w->flags & MTX_WAKEUP_EVENT) ) {
       if ( (n = add_signaled(w, cc, n)) == ccmax ) {
         break;
       }
@@ -507,7 +536,7 @@ static int walk_waiters_list(int64_t ct, coroutine_t cc[], int ccmax, int64_t * 
       }
     }
     else if ( w->tmo == 0 ) {
-      CF_FATAL("APP BUG: temp->tmo==0");
+      CF_FATAL("APP BUG: w->tmo==0");
       exit(1);
     }
   }
@@ -566,7 +595,7 @@ static void * pclthread(void * arg)
       epoll_listener_lock();
     }
 
-    t0 = cf_get_monotic_ms();
+    t0 = co_current_time_ms();
 
     if ( !(n = walk_waiters_list(t0, cc, ccmax, &tmo)) ) {
       epoll_listener_wait(tmo);
@@ -731,13 +760,15 @@ bool co_schedule_io(int so, uint32_t events, int (*callback)(void * arg, uint32_
 
 void co_sleep(uint32_t msec)
 {
-  if ( cf_in_cothread() ) {
+  if ( cf_in_co_thread() ) {
 
     struct cclist_node * node =
-        add_waiter(current_core, &(struct io_waiter ) {
-          .co = co_current(),
-          .tmo = cf_get_monotic_ms() + msec,
-        });
+        add_waiter(current_core,
+            &(struct io_waiter ) {
+                  .co = co_current(),
+                  .tmo = co_current_time_ms() + msec,
+                  .flags = CO_YIELD
+                });
 
     co_call(current_core->main);
 
@@ -761,264 +792,274 @@ void co_yield(void)
 
 
 
-typedef
-struct comtx {
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+struct co_thread_lock_t {
   struct iorq e;
   coroutine_t co;
-  pthread_spinlock_t sp;
-} comtx;
+};
 
-static pthread_mutex_t comtx_init_lock
+static pthread_mutex_t co_thread_lock_global_mtx
   = PTHREAD_MUTEX_INITIALIZER;
 
-bool co_mutex_init(co_mutex * mutex)
+
+static inline void co_thread_global_lock(void)
 {
-  struct comtx * mtx = NULL;
+  pthread_mutex_lock(&co_thread_lock_global_mtx);
+}
+
+static inline void co_thread_global_unlock(void)
+{
+  pthread_mutex_unlock(&co_thread_lock_global_mtx);
+}
+
+static co_thread_lock_t * co_thread_check(co_thread_lock_t ** objp)
+{
+  co_thread_lock_t * obj;
+
+  if ( !(obj = *objp) ) {
+    CF_FATAL("BUG: obj = NULL");
+    errno = EINVAL;
+    raise(SIGINT);
+  }
+  else if ( obj->co != co_current() ) {
+    CF_FATAL("BUG: obj->co=%p != co_current()=%p."
+        " Forgot to call co_thread_lock()?",
+        obj->co, co_current());
+    errno = EBUSY;
+    raise(SIGINT);
+    obj = NULL;
+  }
+
+  return obj;
+}
+
+static co_thread_lock_t * co_thread_lock_init_internal(co_thread_lock_t ** objp, bool lock)
+{
+  co_thread_lock_t * obj = NULL;
   bool fok = false;
 
-  pthread_mutex_lock(&comtx_init_lock);
+  if ( lock ) {
+    co_thread_global_lock();
+  }
 
-  mutex->data = NULL;
-
-  if ( !(mtx = calloc(1, sizeof(struct comtx))) ) {
+  if ( !(obj = calloc(1, sizeof(struct co_thread_lock_t))) ) {
     goto end;
   }
 
-  pthread_spin_init(&mtx->sp, 0);
+  obj->e.type = iowait_eventfd;
 
-  mtx->e.type = iowait_eventfd;
-
-  if ( !(mtx->e.so = eventfd(0, 0)) ) {
+  if ( !(obj->e.so = eventfd(0, 0)) ) {
     goto end;
   }
-
-  if ( !set_non_blocking(mtx->e.so, true) ) {
+  if ( !set_non_blocking(obj->e.so, true) ) {
     goto end;
   }
-
-  if ( !epoll_add(&mtx->e, EPOLLIN) ) {
+  if ( !epoll_add(&obj->e, EPOLLIN) ) {
     goto end;
   }
 
   fok = true;
 
-end:
+end :
 
-  if ( fok ) {
-    mutex->data = mtx;
-  }
-  else if ( mtx ) {
-    if ( mtx->e.so != -1 ) {
-      close(mtx->e.so);
+  if ( !fok && obj ) {
+    if ( obj->e.so != -1 ) {
+      epoll_remove(obj->e.so);
+      close(obj->e.so);
     }
-    free(mtx);
+    free(obj);
+    obj = NULL;
   }
 
-  pthread_mutex_unlock(&comtx_init_lock);
+  *objp = obj;
 
-  return fok;
+  if ( lock ) {
+    co_thread_global_unlock();
+  }
+
+  return obj;
 }
 
-void co_mutex_destroy(co_mutex * mutex)
+bool co_thread_lock_init(co_thread_lock_t ** objp)
 {
-  struct comtx * mtx;
-
-  pthread_mutex_lock(&comtx_init_lock);
-  if ( (mtx = mutex->data) ) {
-    if ( mtx->e.so != -1 ) {
-      epoll_remove(mtx->e.so);
-      close(mtx->e.so);
-    }
-    free(mtx);
-    mutex->data = NULL;
-  }
-
-  pthread_mutex_unlock(&comtx_init_lock);
+  return co_thread_lock_init_internal(objp, true) != NULL;
 }
 
-bool co_mutex_lock(co_mutex * mutex)
+void co_thread_lock_destroy(co_thread_lock_t ** objp)
 {
+  co_thread_global_lock();
+
+  if ( objp && *objp ) {
+    if ( (*objp)->e.so != -1 ) {
+      epoll_remove((*objp)->e.so);
+      close((*objp)->e.so);
+    }
+    free(*objp);
+    *objp = NULL;
+  }
+
+  co_thread_global_unlock();
+}
+
+// must be globally locked
+static void co_thread_lock_internal(co_thread_lock_t * obj)
+{
+  struct cclist_node * node =
+      add_waiter(current_core,
+          &(struct io_waiter ) {
+                .co = co_current(),
+                .tmo = -1,
+                .mask = EPOLLIN
+              });
+
+  epoll_queue(&obj->e, cclist_peek(node));
+
+  while ( obj->co ) {
+    co_thread_global_unlock();
+
+      co_call(current_core->main);
+
+    co_thread_global_lock();
+  }
+  obj->co = co_current();
+
+
+  epoll_dequeue(&obj->e, cclist_peek(node));
+  remove_waiter(current_core, node);
+}
+
+// must be globally locked
+static void co_thread_unlock_internal(co_thread_lock_t * obj)
+{
+  obj->co = NULL;
+  eventfd_write(obj->e.so, 1);
+}
+
+bool co_thread_lock(co_thread_lock_t ** objp)
+{
+  co_thread_lock_t * obj;
+
+  co_thread_global_lock();
+  if ( (obj = *objp) || (obj = co_thread_lock_init_internal(objp, false)) ) {
+    co_thread_lock_internal(obj);
+  }
+  co_thread_global_unlock();
+
+  return obj != NULL;
+}
+
+bool co_thread_unlock(co_thread_lock_t ** objp)
+{
+  struct co_thread_lock_t * obj;
+
+  co_thread_global_lock();
+
+  if ( (obj = co_thread_check(objp)) ) {
+    co_thread_unlock_internal(obj);
+  }
+
+  co_thread_global_unlock();
+
+  if ( obj ) {
+    co_yield();
+  }
+
+  return obj != NULL;
+}
+
+static int co_thread_signal_internal(co_thread_lock_t ** objp, bool bc)
+{
+  co_thread_lock_t * obj;
+  int nb_signalled = -1;
+
+  co_thread_global_lock();
+
+  if ( (obj = co_thread_check(objp)) ) {
+
+    nb_signalled = 0;
+
+    for ( struct io_waiter * iow = obj->e.head; iow != NULL; iow = iow->next ) {
+      if ( iow->flags & MTX_WAKEUP_WAITING ) {
+        iow->flags |= MTX_WAKEUP_EVENT;
+        ++nb_signalled;
+        if ( !bc ) {
+          break;
+        }
+      }
+    }
+  }
+
+  co_thread_global_unlock();
+
+  if ( nb_signalled > 0 ) {
+    eventfd_write(obj->e.so, 1);
+    co_yield();
+  }
+
+  return nb_signalled;
+}
+
+int co_thread_signal(co_thread_lock_t ** objp)
+{
+  return co_thread_signal_internal(objp, false);
+}
+
+int co_thread_broadcast(co_thread_lock_t ** objp)
+{
+  return co_thread_signal_internal(objp, true);
+}
+
+int co_thread_wait(co_thread_lock_t ** objp, int tmo)
+{
+  struct co_thread_lock_t * obj;
   struct cclist_node * node;
-  struct comtx * mtx;
+  struct io_waiter * iow;
+  int status = -1;
 
-  if ( !(mtx = mutex->data) && !co_mutex_init(mutex) ) {
-    return false;
-  }
+  co_thread_global_lock();
 
-  pthread_spin_lock(&mtx->sp);
-
-  while ( mtx->co ) {
-
-    pthread_spin_unlock(&mtx->sp);
+  if ( (obj = co_thread_check(objp)) ) {
 
     node = add_waiter(current_core,
         &(struct io_waiter ) {
-          .co = co_current(),
-          .tmo = -1,
-          .mask = EPOLLIN
-        });
-
-    epoll_queue(&mtx->e, cclist_peek(node));
-
-    co_call(current_core->main);
-
-    epoll_dequeue(&mtx->e, cclist_peek(node));
-    remove_waiter(current_core, node);
-
-    pthread_spin_lock(&mtx->sp);
-  }
-
-  mtx->co = co_current();
-  pthread_spin_unlock(&mtx->sp);
-
-  return true;
-}
-
-bool co_mutex_unlock(co_mutex * mutex)
-{
-  struct comtx * mtx;
-
-  if ( !(mtx = mutex->data) ) {
-    errno = EINVAL;
-    return false;
-  }
-
-  pthread_spin_lock(&mtx->sp);
-
-  if ( mtx->co != co_current() ) {
-    CF_FATAL("APP BUG: mtx->co=%p co_current()=%p", mtx->co, co_current());
-    raise(SIGINT);
-    exit(1);
-  }
-
-  mtx->co = NULL;
-  eventfd_write(mtx->e.so, 1);
-  pthread_spin_unlock(&mtx->sp);
-
-  return true;
-}
-
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-struct co_event {
-  struct iorq e;
-};
-
-co_event * co_event_create(void)
-{
-  struct co_event * e = NULL;
-  bool fok = false;
-
-  if ( !(e = calloc(1, sizeof(*e))) ) {
-    CF_CRITICAL("calloc(struct co_event) fails: %s", strerror(errno));
-    goto end;
-  }
-
-  e->e.type = iowait_eventfd;
-  e->e.w = NULL;
-
-  if ( !(e->e.so = eventfd(0,0)) ) {
-    CF_CRITICAL("eventfd() fails: %s", strerror(errno));
-    goto end;
-  }
-
-  if ( !set_non_blocking(e->e.so, true) ) {
-    CF_CRITICAL("so_set_noblock(so=%d) fails: %s", e->e.so, strerror(errno));
-    goto end;
-  }
-
-  if ( !epoll_add(&e->e, EPOLLIN) ) {
-    CF_CRITICAL("epoll_add() fails: emgr.eso=%d e->e.so=%d errno=%d %s", epoll_listener.eso, e->e.so, errno, strerror(errno));
-    goto end;
-  }
-
-  fok = true;
-
-end: ;
-
-  if ( !fok && e ) {
-    if ( e->e.so != -1 ) {
-      close(e->e.so);
-    }
-    free(e);
-    e = NULL;
-  }
-
-  return e;
-}
-
-void co_event_delete(co_event ** e)
-{
-  if ( e && *e ) {
-    if ( (*e)->e.so != -1 ) {
-      epoll_remove((*e)->e.so);
-      close((*e)->e.so);
-    }
-    free(*e);
-    *e = NULL;
-  }
-}
-
-bool co_event_set(co_event * e)
-{
-  return eventfd_write(e->e.so, 1) == 0;
-}
-
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-struct co_event_waiter {
-  struct co_scheduler_context * core;
-  struct cclist_node * node;
-};
-
-struct co_event_waiter * co_event_add_waiter(struct co_event * e)
-{
-  struct co_event_waiter * w;
-
-  if ( (w = malloc(sizeof(struct co_event_waiter))) ) {
-    w->node = add_waiter(w->core = current_core,
-        &(struct io_waiter ) {
-              .co = NULL,
+              .co = obj->co,
+              .tmo = tmo >= 0 ? co_current_time_ms() + tmo : -1,
               .mask = EPOLLIN,
-              .tmo = -1,
+              .flags = MTX_WAKEUP_WAITING
             });
 
-    epoll_queue(&e->e, cclist_peek(w->node));
+    epoll_queue(&obj->e, iow = cclist_peek(node));
+
+    co_thread_unlock_internal(obj);
+
+    while ( !(status = ((iow->flags & MTX_WAKEUP_EVENT) != 0)) && (iow->tmo < 0 || co_current_time_ms() < iow->tmo) ) {
+      co_thread_global_unlock();
+
+        co_call(current_core->main);
+
+      co_thread_global_lock();
+    }
+
+    co_thread_lock_internal(obj);
+
+    epoll_dequeue(&obj->e, cclist_peek(node));
+    remove_waiter(current_core, node);
   }
 
-  return w;
-}
+  co_thread_global_unlock();
 
-void co_event_remove_waiter(struct co_event * e, struct co_event_waiter * w)
-{
-  if ( w ) {
-    epoll_dequeue(&e->e, cclist_peek(w->node));
-    remove_waiter(w->core, w->node);
-    free(w);
-  }
-}
-
-bool co_event_wait(struct co_event_waiter * w, int tmo_ms)
-{
-  struct cclist_node * node = w->node;
-  struct io_waiter * iow = cclist_peek(node);
-
-  if ( current_core != w->core ) {
-    CF_CRITICAL("APP BUG: core not match: current_core=%p ww->core=%p", current_core, w->core);
-    raise(SIGINT); // break for gdb
-    exit(1);
+  if ( status == 0 ) {
+    errno = ETIME;
   }
 
-  iow->co = co_current();
-  iow->tmo = tmo_ms >= 0 ? cf_get_monotic_ms() + tmo_ms : -1;
-
-  co_call(current_core->main);
-  iow->co = NULL;
-
-  return iow->revents != 0;
+  return status;
 }
+
+
+
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1036,7 +1077,7 @@ co_socket * co_socket_new(int so)
   if ( (cc = calloc(1, sizeof(*cc))) ) {
     cc->e.so = so;
     cc->e.type = iowait_io;
-    cc->e.w = NULL;
+    cc->e.head = NULL;
     cc->recvtmo = cc->sendtmo = -1;
     if ( !so_set_non_blocking(so, 1) || !epoll_add(&cc->e, EPOLLIN | EPOLLOUT) ) {
       free(cc), cc = NULL;
@@ -1084,7 +1125,7 @@ bool co_socket_connect(co_socket * cc, const struct sockaddr *address, socklen_t
   struct cclist_node * node =
       add_waiter(current_core, &(struct io_waiter ) {
         .co = co_current(),
-        .tmo = tmo_ms >= 0 ? cf_get_monotic_ms() + tmo_ms: -1,
+        .tmo = tmo_ms >= 0 ? co_current_time_ms() + tmo_ms: -1,
         .mask = EPOLLOUT
       });
 
@@ -1094,7 +1135,7 @@ bool co_socket_connect(co_socket * cc, const struct sockaddr *address, socklen_t
   if ( (status = connect(cc->e.so, address, addrslen)) == -1 && errno == EINPROGRESS ) {
     do {
       co_call(current_core->main);
-    } while ( !(w->revents & (EPOLLOUT | EPOLLERR)) && (w->tmo == -1 || cf_get_monotic_ms() <= w->tmo) );
+    } while ( !(w->revents & (EPOLLOUT | EPOLLERR)) && (w->tmo == -1 || co_current_time_ms() <= w->tmo) );
 
     if ( !(w->revents & EPOLLERR) ) {
       status = 0;
@@ -1142,7 +1183,7 @@ ssize_t co_socket_send(co_socket * cc, const void * buf, size_t buf_size, int fl
       add_waiter(current_core,
           &(struct io_waiter ) {
             .co = co_current(),
-            .tmo = cc->sendtmo >= 0 ? cf_get_monotic_ms() + cc->sendtmo: -1,
+            .tmo = cc->sendtmo >= 0 ? co_current_time_ms() + cc->sendtmo: -1,
             .mask = EPOLLOUT
             });
 
@@ -1156,7 +1197,7 @@ ssize_t co_socket_send(co_socket * cc, const void * buf, size_t buf_size, int fl
     if ( (size = send(cc->e.so, pb + sent, buf_size - sent, flags | MSG_NOSIGNAL | MSG_DONTWAIT)) > 0 ) {
       sent += size;
       if ( cc->sendtmo >= 0 ) {
-        w->tmo = cf_get_monotic_ms() + cc->sendtmo * 1000;
+        w->tmo = co_current_time_ms() + cc->sendtmo * 1000;
       }
     }
     else if ( errno == EAGAIN ) {
@@ -1185,7 +1226,7 @@ ssize_t co_socket_recv(co_socket * cc, void * buf, size_t buf_size, int flags)
   struct cclist_node * node =
       add_waiter(current_core, &(struct io_waiter ) {
         .co = co_current(),
-        .tmo = cc->recvtmo >= 0 ? cf_get_monotic_ms() + cc->recvtmo : -1,
+        .tmo = cc->recvtmo >= 0 ? co_current_time_ms() + cc->recvtmo : -1,
         .mask = EPOLLIN
       });
 
@@ -1193,7 +1234,7 @@ ssize_t co_socket_recv(co_socket * cc, void * buf, size_t buf_size, int flags)
   epoll_queue(&cc->e, w = cclist_peek(node));
 
   while ( (size = recv(cc->e.so, buf, buf_size, flags | MSG_DONTWAIT | MSG_NOSIGNAL)) < 0 && errno == EAGAIN ) {
-    if ( w->tmo != -1 && cf_get_monotic_ms() >= w->tmo ) {
+    if ( w->tmo != -1 && co_current_time_ms() >= w->tmo ) {
       break;
     }
     co_call(current_core->main);
@@ -1223,14 +1264,14 @@ co_socket * co_socket_accept_new(co_socket * cc, struct sockaddr * addrs, sockle
   struct cclist_node * node =
       add_waiter(current_core, &(struct io_waiter ) {
         .co = co_current(),
-        .tmo = cc->recvtmo >= 0 ? cf_get_monotic_ms() + cc->recvtmo : -1,
+        .tmo = cc->recvtmo >= 0 ? co_current_time_ms() + cc->recvtmo : -1,
         .mask = EPOLLIN
       });
 
   epoll_queue(&cc->e, w = cclist_peek(node));
 
   while ( (so = accept(cc->e.so, addrs, addrslen)) == -1 && errno == EAGAIN ) {
-    if ( w->tmo != -1 && cf_get_monotic_ms() >= w->tmo ) {
+    if ( w->tmo != -1 && co_current_time_ms() >= w->tmo ) {
       break;
     }
     co_call(current_core->main);
@@ -1258,10 +1299,10 @@ uint32_t co_io_wait(int so, uint32_t events, int msec)
   struct iorq e = {
     .so = so,
     .type = iowait_io,
-    .w = cclist_peek(node =
+    .head = cclist_peek(node =
         add_waiter(current_core, &(struct io_waiter ) {
           .co = co_current(),
-          .tmo = msec < 0 ? -1 : cf_get_monotic_ms() + msec,
+          .tmo = msec < 0 ? -1 : co_current_time_ms() + msec,
           .mask = events,
         })),
   };
@@ -1274,7 +1315,7 @@ uint32_t co_io_wait(int so, uint32_t events, int msec)
 
   co_call(current_core->main);
 
-  revents = e.w->revents;
+  revents = e.head->revents;
 
   epoll_remove(so);
   remove_waiter(current_core, node);
@@ -1393,7 +1434,7 @@ int co_poll(struct pollfd *__fds, nfds_t __nfds, int __timeout_ms)
     struct cclist_node * node;
   } c[__nfds];
 
-  int64_t tmo = __timeout_ms >= 0 ? cf_get_monotic_ms() + __timeout_ms : -1;
+  int64_t tmo = __timeout_ms >= 0 ? co_current_time_ms() + __timeout_ms : -1;
   coroutine_t co = co_current();
   uint32_t event_mask;
 
@@ -1407,7 +1448,7 @@ int co_poll(struct pollfd *__fds, nfds_t __nfds, int __timeout_ms)
 
     c[i].e.so = __fds[i].fd;
     c[i].e.type = iowait_io;
-    c[i].e.w = cclist_peek(c[i].node =
+    c[i].e.head = cclist_peek(c[i].node =
         add_waiter(current_core, &(struct io_waiter ) {
           .co = co,
           .tmo = tmo,
@@ -1432,15 +1473,15 @@ int co_poll(struct pollfd *__fds, nfds_t __nfds, int __timeout_ms)
 
     epoll_remove(c[i].e.so);
 
-    if ( (__fds[i].events & POLLIN) && (c[i].e.w->revents & EPOLLIN) ) {
+    if ( (__fds[i].events & POLLIN) && (c[i].e.head->revents & EPOLLIN) ) {
       __fds[i].revents |= POLLIN;
     }
 
-    if ( (__fds[i].events & POLLOUT) && (c[i].e.w->revents & EPOLLOUT) ) {
+    if ( (__fds[i].events & POLLOUT) && (c[i].e.head->revents & EPOLLOUT) ) {
       __fds[i].revents |= POLLOUT;
     }
 
-    if ( (c[i].e.w->revents & EPOLLERR) ) {
+    if ( (c[i].e.head->revents & EPOLLERR) ) {
       __fds[i].revents |= POLLERR;
     }
 

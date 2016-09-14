@@ -97,9 +97,9 @@ struct corpc_open_stream_opts {
 
 corpc_channel * corpc_channel_new(const struct corpc_channel_opts * opts);
 
-bool corpc_open_channel(corpc_channel * channel);
+bool corpc_channel_open(corpc_channel * channel);
 
-void corpc_close_channel(corpc_channel * channel);
+void corpc_channel_close(corpc_channel * channel);
 
 void corpc_channel_addref(corpc_channel * chp);
 

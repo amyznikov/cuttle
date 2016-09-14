@@ -42,13 +42,13 @@ struct corpc_stream_opts {
 
 struct corpc_channel {
 
-  co_mutex mtx;
   co_ssl_socket * ssl_sock;
   void * client_context;
   ccarray_t streams; // <corpc_stream*>
-  co_event * stream_event;
 
-  enum corpc_channel_state state;
+  int refs;
+
+  corpc_channel_state state;
   void (*onstatechanged)(struct corpc_channel * channel,
       enum corpc_channel_state,
       int reason);
@@ -72,7 +72,6 @@ struct corpc_channel {
 
 
 corpc_channel * corpc_channel_accept(corpc_listening_port * sslp, const co_socket * ssl_sock);
-void corpc_channel_relase(corpc_channel ** chp);
 
 enum corpc_channel_state corpc_get_channel_state(const corpc_channel * channel);
 bool corpc_channel_established(const corpc_channel * channel);

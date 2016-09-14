@@ -24,47 +24,29 @@ extern "C" {
 
 bool co_scheduler_init(int ncpu);
 bool co_schedule(void (*fn)(void*), void * arg, size_t stack_size);
-bool cf_in_cothread(void);
+bool cf_in_co_thread(void);
 void co_yield(void);
 void co_sleep(uint32_t msec);
 uint32_t co_io_wait(int so, uint32_t events, int msec);
 
 ////////////////////////////////////////////////////////////////
 
+
 typedef
-struct co_mutex {
-  void * data;
-} co_mutex;
+struct co_thread_lock_t
+  co_thread_lock_t;
 
-#define CO_MUTEX_INITIALIZER {NULL}
+#define CO_THREAD_WAIT_INITIALIZER  NULL
 
-bool co_mutex_init(co_mutex * mtx);
-bool co_mutex_lock(co_mutex * mtx);
-bool co_mutex_unlock(co_mutex * mtx);
-void co_mutex_destroy(co_mutex * mtx);
-
-
-////////////////////////////////////////////////////////////////
-
-
-typedef struct co_event
-  co_event;
-
-co_event * co_event_create(void);
-void co_event_delete(co_event ** e);
-bool co_event_set(co_event * e);
-
+bool co_thread_lock_init(co_thread_lock_t ** wait);
+void co_thread_lock_destroy(co_thread_lock_t ** wait);
+bool co_thread_lock(co_thread_lock_t ** wait);
+bool co_thread_unlock(co_thread_lock_t ** wait);
+int  co_thread_signal(co_thread_lock_t ** wait);
+int  co_thread_broadcast(co_thread_lock_t ** wait);
+int  co_thread_wait(co_thread_lock_t ** wait, int tmout);
 
 ////////////////////////////////////////////////////////////////
-
-
-typedef struct co_event_waiter
-  co_event_waiter;
-
-co_event_waiter * co_event_add_waiter(co_event * e);
-void co_event_remove_waiter(co_event * e, co_event_waiter * w);
-bool co_event_wait(co_event_waiter * w, int msec);
-
 
 
 ////////////////////////////////////////////////////////////////

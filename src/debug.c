@@ -127,8 +127,8 @@ static inline void plogbegin(int pri)
   case CF_LOG_NOTICE:
       ctrl = TC_BOLD;
     break;
-  case CF_LOG_INFO:
-    case CF_LOG_DEBUG:
+  //case CF_LOG_INFO:
+  case CF_LOG_DEBUG:
       ctrl = TCFG_GREEN;
     break;
   default:
@@ -153,7 +153,7 @@ static inline void plogend(int pri)
     case CF_LOG_ERROR:
     case CF_LOG_WARNING:
     case CF_LOG_NOTICE:
-    case CF_LOG_INFO:
+    //case CF_LOG_INFO:
     case CF_LOG_DEBUG:
     ctrl = TC_RESET;
     break;
@@ -226,11 +226,10 @@ uint32_t cf_get_loglevel(void)
   return logmask;
 }
 
-void cf_plogv(int pri, const char * func, int line, const char * format, va_list arglist)
+
+static void do_plogv(int pri, const char * func, int line, const char * format, va_list arglist)
 {
   pthread_mutex_lock(&mtx);
-
-  if (  fplog && (pri & 0x07) <= (logmask & 0x07) ) {
 #if __ANDROID__
 
     // todo:
@@ -245,17 +244,24 @@ void cf_plogv(int pri, const char * func, int line, const char * format, va_list
     dump_ssl_errors();
     plogend(pri & 0x07);
 #endif
-  }
-
   pthread_mutex_unlock(&mtx);
+}
+
+void cf_plogv(int pri, const char * func, int line, const char * format, va_list arglist)
+{
+  if ( fplog && (pri & 0x07) <= (logmask & 0x07) ) {
+    do_plogv(pri, func, line, format, arglist);
+  }
 }
 
 void cf_plog(int pri, const char * func, int line, const char * format, ...)
 {
-  va_list arglist;
-  va_start(arglist, format);
-  cf_plogv(pri, func, line, format, arglist);
-  va_end(arglist);
+  if ( fplog && (pri & 0x07) <= (logmask & 0x07) ) {
+    va_list arglist;
+    va_start(arglist, format);
+    do_plogv(pri, func, line, format, arglist);
+    va_end(arglist);
+  }
 }
 
 
