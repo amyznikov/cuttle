@@ -45,7 +45,7 @@ static void client_thread(void * arg)
 
   CF_DEBUG("C co_ssl_server_connect()");
 
-  ssl_sock = co_ssl_server_connect("localhost", 6008,
+  ssl_sock = co_ssl_server_connect_new("localhost", 6008,
       &(const co_ssl_connect_opts) {
       .ssl_ctx = g_ssl_ctx,
       .sock_type = SOCK_STREAM,

@@ -102,22 +102,32 @@ end:
   return;
 }
 
-static void on_smaster_get_mail(corpc_stream * st)
+static void mailbox_get_mail(corpc_stream * st)
 {
-  struct client_context * cli;
+  //struct client_context * cli;
   struct mail mail;
+  bool fok = true;
 
-  mail_init(&mail);
+  for ( int i = 0; i < 10 && fok; ++i ) {
 
-  if ( !(cli = corpc_stream_get_channel_client_context(st)) ) {
-    // something wrong
+    char buf[256];
+    sprintf(buf, "mail-%d", i);
+
+    co_sleep(1000);
+
+    mail_init(&mail,
+        &(struct mail_init_args ) {
+              .text = buf
+            });
+
+    if ( !(fok = corpc_stream_write_mail(st, &mail)) ) {
+      CF_CRITICAL("corpc_stream_write_mail() fails");
+    }
+
+    mail_cleanup(&mail);
   }
-  else {
-    corpc_stream_write_mail(st, &mail);
-  }
 
-  mail_cleanup(&mail);
-
+  CF_DEBUG("Finished");
   return;
 }
 
@@ -126,7 +136,14 @@ static corpc_service smaster_service = {
   .name = "auth",
   .methods = {
     { .name = "authenicate", .proc = on_smaster_authenticate },
-    { .name = "get-mail", .proc = on_smaster_get_mail},
+    { .name = NULL },
+  }
+};
+
+static corpc_service mailbox_service = {
+  .name = "mailbox",
+  .methods = {
+    { .name = "getmail", .proc = mailbox_get_mail},
     { .name = NULL },
   }
 };
@@ -146,7 +163,7 @@ void send_some_smaster_event_notify(client_context * cli)
           });
 
   if ( st ) {
-    corpc_stream_write(st, &msg);
+    corpc_stream_write(st, msg.data, msg.size);
     corpc_close_stream(&st);
   }
 
@@ -203,9 +220,10 @@ int main(/*int argc, char *argv[]*/)
             },
 
             .services = (const corpc_service *[] ) {
-              &smaster_service
+              &smaster_service,
+              &mailbox_service
             },
-            .nb_services = 1,
+            .nb_services = 2,
 
             .onaccepted = on_client_accepted,
             .ondisconnected = on_client_disconnected,

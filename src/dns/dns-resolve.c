@@ -33,6 +33,11 @@ static int cf_dns_status2errno(int status)
   return status;
 }
 
+const char * cf_resolve_strerror(int status)
+{
+  return dns_strerror(status);
+}
+
 
 static struct dns_resolv_conf * getresconf(int * error)
 {
@@ -175,7 +180,7 @@ void cf_resolve_destroy(struct cf_dns_query ** q)
   }
 }
 
-const char * cf_resolve_strerror(int status)
-{
-  return dns_strerror(status);
-}
+
+
+
+

@@ -10,7 +10,6 @@
 #ifndef __cuttle_corpc_channel_h__
 #define __cuttle_corpc_channel_h__
 
-#include <cuttle/corpc/corpc-msg.h>
 #include <cuttle/cothread/ssl.h>
 
 #ifdef __cplusplus
@@ -37,6 +36,7 @@ enum corpc_channel_state {
   corpc_channel_state_accepting = 3,
   corpc_channel_state_accepted = 4,
   corpc_channel_state_disconnecting = 5,
+  corpc_channel_state_closed = 6,
 } corpc_channel_state;
 
 const char * corpc_channel_state_string(
@@ -101,10 +101,6 @@ bool corpc_channel_open(corpc_channel * channel);
 
 void corpc_channel_close(corpc_channel * channel);
 
-void corpc_channel_addref(corpc_channel * chp);
-
-void corpc_channel_relase(corpc_channel ** chp);
-
 enum corpc_channel_state corpc_get_channel_state(const corpc_channel * channel);
 
 bool corpc_channel_established(const corpc_channel * channel);
@@ -122,8 +118,8 @@ void corpc_close_stream(corpc_stream ** stp);
 //void corpc_stream_addref(corpc_stream * st);
 //void corpc_stream_release(corpc_stream ** st);
 
-bool corpc_stream_read(struct corpc_stream * st, corpc_msg * comsg);
-bool corpc_stream_write(struct corpc_stream * st, const corpc_msg * msg);
+ssize_t corpc_stream_read(struct corpc_stream * st,  void ** msg);
+ssize_t corpc_stream_write(struct corpc_stream * st, const void * data, size_t size);
 
 enum corpc_stream_state corpc_get_stream_state(const corpc_stream * stream);
 

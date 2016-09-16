@@ -15,7 +15,7 @@
 
 
 
-static bool corpc_listening_port_on_accept(co_ssl_listening_port * sslp, co_socket * accepted_sock)
+static bool corpc_listening_port_on_accept(co_ssl_listening_port * sslp, co_ssl_socket * accepted_sock)
 {
   return corpc_channel_accept((corpc_listening_port * )sslp, accepted_sock) != NULL;
 }
@@ -42,23 +42,12 @@ static const co_ssl_listening_port_opts * fill_ssl_opts(const struct corpc_liste
 
 bool corpc_listening_port_init(struct corpc_listening_port * cp, const struct corpc_listening_port_opts * opts)
 {
-  bool fok = false;
-
-  if ( !co_ssl_listening_port_init(&cp->base, tmpsslopts(opts)) ) {
-    goto end;
+  if ( co_ssl_listening_port_init(&cp->base, tmpsslopts(opts)) ) {
+    cp->services = opts->services;
+    cp->nb_services = opts->nb_services;
+    return true;
   }
-
-  cp->services = opts->services;
-  cp->nb_services =opts->nb_services;
-
-  fok = true;
-
-end:
-  if ( !fok ) {
-    corpc_listening_port_cleanup(cp);
-  }
-
-  return fok;
+  return false;
 }
 
 void corpc_listening_port_cleanup(struct corpc_listening_port * cp)

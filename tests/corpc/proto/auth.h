@@ -13,8 +13,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <cuttle/corpc/corpc-msg.h>
 #include <cuttle/corpc/channel.h>
+#include "corpc-msg.h"
 
 #ifdef __cplusplus
 extern "C" {

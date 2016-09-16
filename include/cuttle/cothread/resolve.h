@@ -25,6 +25,11 @@ int co_resolve(const char * name,
     const struct addrinfo * restrict hints,
     time_t timeout_sec);
 
+bool co_server_resolve(struct addrinfo ** ai,
+    const char * address,
+    uint16_t port,
+    int tmo);
+
 const char * co_resolve_strerror(int status);
 
 #ifdef __cplusplus

@@ -13,8 +13,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <cuttle/corpc/corpc-msg.h>
 #include <cuttle/corpc/channel.h>
+#include "corpc-msg.h"
 
 
 #ifdef __cplusplus
@@ -23,13 +23,14 @@ extern "C" {
 
 typedef
 struct mail {
-  char * from;
-  char * to;
-  char * body;
+  char * text;
 } mail;
 
+struct mail_init_args {
+  const char * text;
+};
 
-void mail_init(struct mail * mail);
+void mail_init(struct mail * mail, const struct mail_init_args * args);
 void mail_cleanup(struct mail * mail);
 
 bool corpc_pack_mail(const struct mail * mail, corpc_msg * msg);

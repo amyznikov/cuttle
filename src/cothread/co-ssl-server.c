@@ -13,44 +13,6 @@
 #include <string.h>
 
 
-#define CO_SERVER_LISTENING_THREAD_STACK_SIZE         (256*1024)
-
-static void co_ssl_server_listening_thread(void * arg)
-{
-  co_ssl_listening_port * sslp = arg;
-
-  co_socket * listening_sock = sslp->listening_sock;
-  co_socket * accepted_sock = NULL;
-
-  CF_DEBUG("Started");
-
-
-  while ( 42 ) {
-
-    bool fok = false;
-
-    if ( !(accepted_sock = co_socket_accept_new(listening_sock, NULL, 0)) ) {
-      CF_CRITICAL("co_ssl_socket_accept() fails");
-    }
-    else if ( !sslp->onaccept(sslp, accepted_sock) ) {
-      CF_CRITICAL("onaccept() fails");
-    }
-    else {
-      fok = true;
-    }
-
-    if ( !fok ) {
-      co_socket_close(&accepted_sock, true);
-    }
-  }
-
-  CF_DEBUG("Finished");
-}
-
-
-
-
-
 bool co_ssl_server_init(struct co_ssl_server * sslsrv, const co_ssl_server_opts * opts)
 {
   int max_nb_ports = opts && opts->max_nb_ports > 0 ? opts->max_nb_ports : 8;
@@ -184,12 +146,21 @@ bool co_ssl_server_start(co_ssl_server * ssrv)
       break;
     }
 
-    if ( !co_schedule(co_ssl_server_listening_thread, sslp, CO_SERVER_LISTENING_THREAD_STACK_SIZE) ) {
-      CF_FATAL("co_schedule(co_ssl_server_listening_thread) fails: %s", strerror(errno));
+//    if ( !co_schedule(co_ssl_server_listening_thread, sslp, CO_SERVER_LISTENING_THREAD_STACK_SIZE) ) {
+//      CF_FATAL("co_schedule(co_ssl_server_listening_thread) fails: %s", strerror(errno));
+//      co_socket_close(&sslp->listening_sock, false);
+//      fok = false;
+//      break;
+//    }
+
+    if ( !co_ssl_listening_port_start_listen(sslp) ) {
+      CF_FATAL("co_ssl_listening_port_start_listen() fails: %s", strerror(errno));
       co_socket_close(&sslp->listening_sock, false);
       fok = false;
       break;
     }
+
+
   }
 
   return fok;

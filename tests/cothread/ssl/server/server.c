@@ -34,7 +34,7 @@ static SSL_CTX * g_ssl_ctx;
 
 struct connection_context {
   co_ssl_listening_port * sslp;
-  co_socket * sock;
+  co_ssl_socket * ssl_sock;
 };
 
 
@@ -45,17 +45,14 @@ static void process_connection(void * arg)
   char buf[1024] = "";
   ssize_t cbrecv, cbsent;
 
-  SSL_CTX * ssl_ctx  = context->sslp->ssl_ctx;
-  co_socket * sock = context->sock;
-  co_ssl_socket * ssl_sock = NULL;
+  co_ssl_socket * ssl_sock = context->ssl_sock;
 
   CF_DEBUG("Started");
 
-  if ( !(ssl_sock = co_ssl_socket_accept(&sock, ssl_ctx)) ) {
+  if ( !co_ssl_socket_accept(ssl_sock) ) {
     CF_CRITICAL("co_ssl_socket_accept() fails");
     goto end;
   }
-
 
   if ( (cbrecv = co_ssl_socket_recv(ssl_sock, buf, sizeof(buf) - 1)) < 0 ) {
     CF_CRITICAL("co_ssl_socket_recv() fails");
@@ -78,14 +75,13 @@ static void process_connection(void * arg)
 
 end:
 
-  co_socket_close(&sock, false);
   co_ssl_socket_close(&ssl_sock, false);
 
   CF_DEBUG("Finished");
 }
 
 
-static bool on_accept_connection(struct co_ssl_listening_port * sslp, co_socket * sock)
+static bool on_accept_connection(struct co_ssl_listening_port * sslp, co_ssl_socket * ssl_sock)
 {
   struct connection_context * context;
 
@@ -96,7 +92,7 @@ static bool on_accept_connection(struct co_ssl_listening_port * sslp, co_socket 
     goto end;
   }
 
-  context->sock = sock;
+  context->ssl_sock = ssl_sock;
   context->sslp = sslp;
 
   if ( !co_schedule(process_connection, context, PROCESSOR_THREAD_STACK_SIZE) ) {

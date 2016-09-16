@@ -26,6 +26,7 @@ struct corpc_stream {
   corpc_stream_state state;
   uint16_t sid;
   uint16_t did;
+  int refs;
 };
 
 typedef
@@ -48,6 +49,9 @@ struct corpc_channel {
 
   int refs;
 
+  bool streams_lock;
+  bool write_lock;
+  bool state_lock;
   corpc_channel_state state;
   void (*onstatechanged)(struct corpc_channel * channel,
       enum corpc_channel_state,
@@ -71,20 +75,19 @@ struct corpc_channel {
 };
 
 
-corpc_channel * corpc_channel_accept(corpc_listening_port * sslp, const co_socket * ssl_sock);
+corpc_channel * corpc_channel_accept(corpc_listening_port * sslp, co_ssl_socket * ssl_sock);
+void corpc_channel_addref(corpc_channel * chp);
+void corpc_channel_relase(corpc_channel ** chp);
 
 enum corpc_channel_state corpc_get_channel_state(const corpc_channel * channel);
 bool corpc_channel_established(const corpc_channel * channel);
 
 
-bool corpc_channel_read(struct corpc_stream * st, corpc_msg * msg);
-bool corpc_channel_write(struct corpc_stream * st, const corpc_msg * msg);
-
-
-
 bool corpc_stream_init(struct corpc_stream * st, const corpc_stream_opts * args);
 corpc_stream * corpc_stream_new(const corpc_stream_opts * args);
 void corpc_stream_cleanup(struct corpc_stream * st);
+
+//void corpc_stream_
 
 
 void corpc_set_stream_state(struct corpc_stream * st, corpc_stream_state state);

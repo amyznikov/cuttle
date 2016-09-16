@@ -23,7 +23,7 @@ struct co_ssl_listening_port {
   int sock_type;
   int proto;
   bool(*onaccept)(struct co_ssl_listening_port * sslp,
-      co_socket * accepted_sock);
+      co_ssl_socket * accepted_sock);
   void * cookie;
   size_t accepted_stack_size;
   co_socket * listening_sock;
@@ -36,7 +36,7 @@ struct co_ssl_listening_port_opts {
   int sock_type;
   int proto;
   bool(*onaccept)(struct co_ssl_listening_port * sslp,
-      co_socket * accepted_sock);
+      co_ssl_socket * accepted_sock);
   void * cookie;
   size_t extra_object_size;
   size_t accepted_stack_size;

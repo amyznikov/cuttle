@@ -139,7 +139,7 @@ struct co_ssl_socket {
 //}
 
 
-co_ssl_socket * co_ssl_socket_new(co_socket * cc, SSL_CTX * ssl_ctx)
+co_ssl_socket * co_ssl_socket_attach(co_socket * cc, SSL_CTX * ssl_ctx)
 {
   co_ssl_socket * ssl_sock = NULL;
   bool fok = false;
@@ -173,6 +173,22 @@ end:
   return ssl_sock;
 }
 
+co_ssl_socket * co_ssl_socket_new(int af, int sock_type, int proto, SSL_CTX * ssl_ctx)
+{
+  co_socket * co_sock = NULL;
+  co_ssl_socket * ssl_sock = NULL;
+
+  if ( !(co_sock = co_socket_new(af, sock_type, proto) )) {
+    CF_SSL_ERR(CF_SSL_ERR_STDIO, "co_socket_new() fails: %s", strerror(errno));
+  }
+  else if ( !(ssl_sock = co_ssl_socket_attach(co_sock, ssl_ctx)) ) {
+    co_socket_close(&co_sock, false);
+  }
+
+  return ssl_sock;
+}
+
+
 void co_ssl_socket_free(co_ssl_socket ** ssl_sock)
 {
   if ( ssl_sock && *ssl_sock ) {
@@ -191,28 +207,49 @@ void co_ssl_socket_close(co_ssl_socket ** ssl_sock, bool abort_conn)
 }
 
 
-void co_ssl_socket_set_send_timeout(co_ssl_socket * ssl_sock, int msec)
+bool co_ssl_socket_set_send_timeout(co_ssl_socket * ssl_sock, int msec)
 {
-  return co_socket_set_send_tmout(ssl_sock->cc, msec);
+  bool fok = false;
+  if ( !ssl_sock || !ssl_sock->cc ) {
+    errno = EBADF;
+  }
+  else {
+    fok = co_socket_set_send_tmout(ssl_sock->cc, msec);
+  }
+  return fok;
 }
 
-void co_ssl_socket_set_recv_timeout(co_ssl_socket * ssl_sock, int msec)
+bool co_ssl_socket_set_recv_timeout(co_ssl_socket * ssl_sock, int msec)
 {
-  return co_socket_set_recv_tmout(ssl_sock->cc, msec);
+  bool fok = false;
+  if ( !ssl_sock || !ssl_sock->cc ) {
+    errno = EBADF;
+  }
+  else {
+    fok = co_socket_set_recv_tmout(ssl_sock->cc, msec);
+  }
+  return fok;
 }
 
 ssize_t co_ssl_socket_send(co_ssl_socket * ssl_sock, const void * buf, size_t size)
 {
-  ssize_t bytes_sent;
+  ssize_t bytes_sent = -1;
 
-  if ( ssl_sock->ssl ) {
+  if ( !ssl_sock ) {
+    CF_SSL_ERR(CF_SSL_ERR_INVALID_ARG, "ssl_sock is NULL");
+    errno = EBADF;
+  }
+  else if ( !buf ) {
+    CF_SSL_ERR(CF_SSL_ERR_INVALID_ARG, "buf is NULL");
+    errno = EINVAL;
+  }
+  else if ( ssl_sock->ssl ) {
     bytes_sent = SSL_write(ssl_sock->ssl, buf, size);
   }
   else if ( ssl_sock->cc ) {
     bytes_sent = co_socket_send(ssl_sock->cc, buf, size, 0);
   }
   else {
-    bytes_sent = -1;
     errno = EBADF;
   }
 
@@ -221,9 +258,17 @@ ssize_t co_ssl_socket_send(co_ssl_socket * ssl_sock, const void * buf, size_t si
 
 ssize_t co_ssl_socket_recv(co_ssl_socket * ssl_sock, void * buf, size_t size)
 {
-  ssize_t bytes_received;
+  ssize_t bytes_received = -1;
 
-  if ( ssl_sock->ssl ) {
+  if ( !ssl_sock ) {
+    CF_SSL_ERR(CF_SSL_ERR_INVALID_ARG, "ssl_sock is NULL");
+    errno = EBADF;
+  }
+  else if ( !buf ) {
+    CF_SSL_ERR(CF_SSL_ERR_INVALID_ARG, "buf is NULL");
+    errno = EINVAL;
+  }
+  else if ( ssl_sock->ssl ) {
     if ( (bytes_received = SSL_read(ssl_sock->ssl, buf, size)) <= 0 ) {
       CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "SSL_read() fails");
     }
@@ -235,7 +280,6 @@ ssize_t co_ssl_socket_recv(co_ssl_socket * ssl_sock, void * buf, size_t size)
   }
   else {
     CF_SSL_ERR(CF_SSL_ERR_INVALID_ARG, "invalid ssl_sock: ssl and cc are both NULL");
-    bytes_received = -1;
     errno = EBADF;
   }
 
@@ -243,11 +287,18 @@ ssize_t co_ssl_socket_recv(co_ssl_socket * ssl_sock, void * buf, size_t size)
 }
 
 
-co_ssl_socket * co_ssl_socket_accept(co_socket ** cc, SSL_CTX * ssl_ctx)
+
+co_ssl_socket * co_ssl_socket_accept_new(co_socket ** cc, SSL_CTX * ssl_ctx)
 {
   co_ssl_socket * ssl_sock = NULL;
 
-  if ( !(ssl_sock = co_ssl_socket_new(*cc, ssl_ctx)) ) {
+  if ( !cc ) {
+    errno = EINVAL;
+  }
+  else if ( !*cc ) {
+    errno = EBADF;
+  }
+  else if ( !(ssl_sock = co_ssl_socket_attach(*cc, ssl_ctx)) ) {
     CF_SSL_ERR(CF_SSL_ERR_CUTTLE, "co_ssl_socket_new() fails");
   }
   else if ( ssl_sock->ssl && SSL_accept(ssl_sock->ssl) != 1 ) {
@@ -261,6 +312,22 @@ co_ssl_socket * co_ssl_socket_accept(co_socket ** cc, SSL_CTX * ssl_ctx)
   return ssl_sock;
 }
 
+bool co_ssl_socket_accept(co_ssl_socket * ssl_sock)
+{
+  bool fok = false;
+
+  if ( !ssl_sock ) {
+    errno = EBADF;
+  }
+  else if ( ssl_sock->ssl && SSL_accept(ssl_sock->ssl) != 1 ) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "SSL_accept() fails");
+  }
+  else {
+    fok = true;
+  }
+
+  return fok;
+}
 
 co_socket * co_ssl_listen(const struct sockaddr * addrs, int sock_type, int proto)
 {
@@ -303,7 +370,7 @@ co_socket * co_ssl_listen(const struct sockaddr * addrs, int sock_type, int prot
   }
 
   CF_DEBUG("C co_socket_new()");
-  if ( !(cc = co_socket_new(so)) ) {
+  if ( !(cc = co_socket_attach(so)) ) {
     CF_SSL_ERR(CF_SSL_ERR_STDIO, "co_socket_new() fails: %s", strerror(errno));
     goto end;
   }
@@ -330,119 +397,78 @@ end: ;
 }
 
 
-co_ssl_socket * co_ssl_connect(const struct sockaddr * addrs, const struct co_ssl_connect_opts * opts)
+bool co_ssl_connect(co_ssl_socket * ssl_sock, const struct sockaddr * addrs, int tmo)
 {
-  co_ssl_socket * ssl_sock = NULL;
-  co_socket * cc = NULL;
-  int so = -1;
-
-  SSL_CTX * ssl_ctx = opts ? opts->ssl_ctx : NULL;
-  int sock_type = opts && opts->sock_type ? opts->sock_type : SOCK_STREAM;
-  int proto = opts && opts->proto ? opts->proto : IPPROTO_TCP;
-  int tmout = opts && opts->tmout ? opts->tmout : 15 * 1000;
-
   int status;
-
   bool fok = false;
 
-  if ( (so = socket(addrs->sa_family, sock_type, proto)) == -1 ) {
-    CF_SSL_ERR(CF_SSL_ERR_STDIO, "socket(sa_family=%d sock_type=%d proto=%d) fails: %s", addrs->sa_family,
-        sock_type, proto, strerror(errno));
-    goto end;
+  if ( !tmo ) {
+    tmo = 15 * 1000;
   }
 
-  if ( !(cc = co_socket_connect_new(so, addrs, so_get_addrlen(addrs), tmout)) ) {
-    CF_SSL_ERR(CF_SSL_ERR_STDIO, "co_socket_connect_new(so=%d) fails: %s", so, strerror(errno));
-    goto end;
+  co_socket_set_sndrcv_tmouts(ssl_sock->cc, tmo, tmo);
+
+  if ( !(fok = co_socket_connect(ssl_sock->cc, addrs, so_get_addrlen(addrs), tmo)) ) {
+    CF_SSL_ERR(CF_SSL_ERR_STDIO, "co_socket_connect() fails: %s", strerror(errno));
+  }
+  else if ( ssl_sock->ssl && (status = SSL_connect(ssl_sock->ssl)) != 1 ) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "SSL_connect() fails: status=%d %s", status,
+        cf_get_ssl_error_string(ssl_sock->ssl, status));
+  }
+  else {
+    fok = true;
   }
 
-  if ( !(ssl_sock = co_ssl_socket_new(cc, ssl_ctx)) ) {
-    CF_SSL_ERR(CF_SSL_ERR_STDIO, "co_ssl_socket_new() fails");
-    goto end;
-  }
+  return fok;
+}
 
-  if ( ssl_sock->ssl ) {
+co_ssl_socket * co_ssl_connect_new(const struct sockaddr * addrs, const struct co_ssl_connect_opts * opts)
+{
+  co_ssl_socket * ssl_sock = NULL;
 
-    co_socket_set_sndrcv_tmouts(cc, tmout, tmout);
-
-    if ( (status = SSL_connect(ssl_sock->ssl)) != 1 ) {
-      CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "SSL_connect() fails: status=%d %s", status,
-          cf_get_ssl_error_string(ssl_sock->ssl, status));
-      goto end;
-    }
-  }
-
-  fok = true;
-
-end:
-
-  if ( !fok ) {
-
-    int errno_backup = errno;
-
-    if ( ssl_sock ) {
+  if ( (ssl_sock = co_ssl_socket_new(addrs->sa_family, opts->sock_type, opts->proto, opts->ssl_ctx)) ) {
+    if ( !co_ssl_connect(ssl_sock, addrs, opts->tmout) ) {
       co_ssl_socket_close(&ssl_sock, true);
     }
-    else if ( so != -1 ) {
-      so_close(so, true);
-    }
-
-    errno = errno_backup;
   }
 
   return ssl_sock;
-
 }
 
 
-co_ssl_socket * co_ssl_server_connect(const char * address, uint16_t port, const struct co_ssl_connect_opts * opts)
+
+
+bool co_ssl_server_connect(co_ssl_socket * ssl_sock, const char * address, uint16_t port, int tmo)
 {
-  co_ssl_socket * ssl_sock = NULL;
-  int status;
-
   struct addrinfo * ai = NULL;
-  const struct addrinfo addrshints = {
-    .ai_family = PF_INET,
-    .ai_socktype = SOCK_STREAM,
-    .ai_flags = AI_V4MAPPED
-  };
+  bool fok;
 
-  int tmo_ms = opts && opts->tmout ? opts->tmout : 15 * 1000;
-
-  bool fok = false;
-
-  if ( !port && ai->ai_addr->sa_family != AF_UNIX ) {
-    CF_SSL_ERR(CF_SSL_ERR_INVALID_ARG, "Destination port not specified");
-    errno = EDESTADDRREQ;
-    goto end;
+  if ( (fok = co_server_resolve(&ai, address, port, tmo)) ) {
+    fok = co_ssl_connect(ssl_sock, ai->ai_addr, tmo);
   }
 
-  if ( (status = co_resolve(address, &ai, &addrshints, tmo_ms > 0 ? tmo_ms / 1000 : 15 * 1000)) ) {
-    CF_SSL_ERR(CF_SSL_ERR_CUTTLE, "co_resolve() fails: status=%d %s", status, co_resolve_strerror(status));
-    goto end;
+  if ( ai ) {
+    freeaddrinfo(ai);
   }
 
-  if ( ai->ai_addr->sa_family == AF_INET ) {
-    ((struct sockaddr_in*) ai->ai_addr)->sin_port = htons(port);
+  return fok;
+}
+
+co_ssl_socket * co_ssl_server_connect_new(const char * address, uint16_t port, const struct co_ssl_connect_opts * opts)
+{
+  struct addrinfo * ai = NULL;
+  co_ssl_socket * ssl_sock = NULL;
+
+  if ( co_server_resolve(&ai, address, port, opts->tmout ? opts->tmout : 15 * 1000) ) {
+    ssl_sock = co_ssl_connect_new(ai->ai_addr, opts);
   }
-  else if ( ai->ai_addr->sa_family == AF_INET6 ) {
-    ((struct sockaddr_in6*) ai->ai_addr)->sin6_port = htons(port);
-  }
 
-  if ( !(ssl_sock = co_ssl_connect(ai->ai_addr, opts)) ) {
-    goto end;
-  }
-
-  fok = true;
-
-end : ;
-
-  if ( !fok ) {
-    co_ssl_socket_close(&ssl_sock, true);
+  if ( ai ) {
+    freeaddrinfo(ai);
   }
 
   return ssl_sock;
-
 }
+
 
 

@@ -5,9 +5,9 @@
  *      Author: amyznikov
  */
 
-#include <cuttle/corpc/corpc-msg.h>
 #include <malloc.h>
 #include <string.h>
+#include "corpc-msg.h"
 
 
 void corpc_msg_init(struct corpc_msg * comsg)

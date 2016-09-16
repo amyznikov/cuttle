@@ -60,6 +60,42 @@ end:;
 }
 
 
+bool co_server_resolve(struct addrinfo ** ai, const char * address, uint16_t port, int tmo)
+{
+  bool fok = false;
+
+  const struct addrinfo addrshints = {
+    .ai_family = PF_INET,
+    .ai_socktype = SOCK_STREAM,
+    .ai_flags = AI_V4MAPPED
+  };
+
+  if ( co_resolve(address, ai, &addrshints, tmo > 0 ? tmo / 1000 : 15 * 1000) != 0 ) {
+    goto end;
+  }
+
+  if ( !port && (*ai)->ai_addr->sa_family != AF_UNIX ) {
+    errno = EDESTADDRREQ;
+    goto end;
+  }
+
+  fok = true;
+
+  if ( (*ai)->ai_addr->sa_family == AF_INET ) {
+    ((struct sockaddr_in*) (*ai)->ai_addr)->sin_port = htons(port);
+  }
+  else if ( (*ai)->ai_addr->sa_family == AF_INET6 ) {
+    ((struct sockaddr_in6*) (*ai)->ai_addr)->sin6_port = htons(port);
+  }
+
+end:
+
+  return fok;
+}
+
+
+
+
 const char * co_resolve_strerror(int status)
 {
   return cf_resolve_strerror(status);

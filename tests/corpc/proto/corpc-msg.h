@@ -18,7 +18,7 @@ extern "C" {
 
 typedef
 struct corpc_msg {
-  size_t size;
+  ssize_t size;
   void * data;
 } corpc_msg;
 

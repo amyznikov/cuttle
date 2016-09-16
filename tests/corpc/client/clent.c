@@ -23,7 +23,7 @@ static void on_channel_state_changed(corpc_channel * channel, enum corpc_channel
   (void)reason;
 }
 
-//////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 
@@ -91,7 +91,7 @@ end:
 }
 
 
-//////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 bool get_mail(corpc_channel * channel)
@@ -99,7 +99,7 @@ bool get_mail(corpc_channel * channel)
   corpc_stream * st = NULL;
   struct mail mail;
 
-  mail_init(&mail);
+  mail_init(&mail, NULL);
 
   st = corpc_open_stream(channel,
       &(const corpc_open_stream_opts ) {
@@ -108,16 +108,26 @@ bool get_mail(corpc_channel * channel)
       });
 
   if ( !st ) {
+    CF_CRITICAL("corpc_open_stream() fails");
     goto end;
   }
 
-//  while ( corpc_stream_read_mail(st, &mail) ) {
-//    mail_cleanup(&mail);
-//  }
+  CF_INFO("BEGIN READ MAILS");
+
+  while ( corpc_stream_read_mail(st, &mail) ) {
+
+    CF_INFO("MAIL: %s", mail.text);
+
+    mail_cleanup(&mail);
+  }
+
+  CF_INFO("END READ MAILS");
 
 end:
 
+  CF_DEBUG("C corpc_close_stream()");
   corpc_close_stream(&st);
+  CF_DEBUG("R corpc_close_stream()");
 
   mail_cleanup(&mail);
 
@@ -151,26 +161,25 @@ static void client_main(void * arg )
   CF_DEBUG("channel->state = %s", corpc_channel_state_string(corpc_get_channel_state(channel)));
 
   if ( !corpc_channel_open(channel) ) {
+    CF_FATAL("corpc_open_channel() fails: %s", strerror(errno));
+    goto end;
+  }
+
+//  if ( !authenticate(channel, "iam", "password") ) {
+//    CF_FATAL("authenticate() fails");
+//    goto end;
+//  }
+
+  if ( !get_mail(channel) ) {
     CF_FATAL("corpc_open_channel() fails");
     goto end;
   }
-
-  if ( !authenticate(channel, "iam", "password") ) {
-    CF_FATAL("authenticate() fails");
-    goto end;
-  }
-
-
-//  if ( !get_mail(channel) ) {
-//    CF_FATAL("corpc_open_channel() fails");
-//    goto end;
-//  }
 
 
 end:
 
   CF_DEBUG("C corpc_channel_relase()");
-  corpc_channel_relase(&channel);
+  corpc_channel_close(channel);
 
   CF_DEBUG("Finished");
 }
