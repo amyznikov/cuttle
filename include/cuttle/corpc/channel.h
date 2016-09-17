@@ -108,16 +108,15 @@ enum corpc_channel_state corpc_get_channel_state(const corpc_channel * channel);
 bool corpc_channel_established(const corpc_channel * channel);
 
 void corpc_channel_set_client_context(corpc_channel * channel, void * client_context);
-
 void * corpc_channel_get_client_context(const corpc_channel * channel);
-
+const SSL * corpc_channel_get_ssl(const corpc_channel * channel);
 
 
 corpc_stream * corpc_open_stream(corpc_channel * channel, const corpc_open_stream_opts * opts);
 void corpc_close_stream(corpc_stream ** stp);
 
 ssize_t corpc_stream_read(struct corpc_stream * st, void ** out);
-ssize_t corpc_stream_write(struct corpc_stream * st, const void * data, size_t size);
+bool corpc_stream_write(struct corpc_stream * st, const void * data, size_t size);
 
 
 bool corpc_stream_read_msg(struct corpc_stream * st, bool (*unpack)(void * msg, const void * data, size_t size), void * appmsg);

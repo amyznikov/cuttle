@@ -199,6 +199,7 @@ bool corpc_proto_recv_msg(co_ssl_socket * ssl_sock, comsg * msgp)
 
     default:
       CF_CRITICAL("Invalid msgp->hdr.code=%u", msgp->hdr.code);
+      errno = EPROTO;
       goto end;
   }
 
@@ -208,6 +209,7 @@ bool corpc_proto_recv_msg(co_ssl_socket * ssl_sock, comsg * msgp)
 
   if ( crc_actual != crc_received ) {
     CF_CRITICAL("CRC NOT MATCH: crc_received=%u crc_actual=%u", crc_received, crc_actual);
+    errno = EPROTO;
     goto end;
   }
 
@@ -251,7 +253,7 @@ bool corpc_proto_send_create_stream_request(co_ssl_socket * ssl_sock, uint16_t s
 
   SEND_DEBUG("send: create_stream_request sid=%u", sid);
 
-  return co_ssl_socket_send(ssl_sock, msg, msgsize);
+  return (co_ssl_socket_send(ssl_sock, msg, msgsize) == (ssize_t)msgsize);
 }
 
 
@@ -280,7 +282,7 @@ bool corpc_proto_send_create_stream_responce(co_ssl_socket * ssl_sock, uint16_t 
 
 
   SEND_DEBUG("send: create_stream_responce sid=%u did=%u", sid, did);
-  return co_ssl_socket_send(ssl_sock, &msg, sizeof(msg));
+  return (co_ssl_socket_send(ssl_sock, &msg, sizeof(msg)) == sizeof(msg));
 }
 
 bool corpc_proto_send_close_stream(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did, uint16_t status)
@@ -303,7 +305,7 @@ bool corpc_proto_send_close_stream(co_ssl_socket * ssl_sock, uint16_t sid, uint1
   msg.details.status = htons(msg.details.status);
 
   SEND_DEBUG("send: close_stream");
-  return co_ssl_socket_send(ssl_sock, &msg, sizeof(msg));
+  return (co_ssl_socket_send(ssl_sock, &msg, sizeof(msg)) == sizeof(msg));
 }
 
 bool corpc_proto_send_data_ack(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did)
@@ -322,7 +324,7 @@ bool corpc_proto_send_data_ack(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t 
   htondr(&msg.hdr);
 
   SEND_DEBUG("send: data_ack sid=%u did=%u", sid, did);
-  return co_ssl_socket_send(ssl_sock, &msg, sizeof(msg));
+  return (co_ssl_socket_send(ssl_sock, &msg, sizeof(msg)) == sizeof(msg));
 }
 
 bool corpc_proto_send_data(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did, const void * data, size_t size)
@@ -343,8 +345,10 @@ bool corpc_proto_send_data(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did,
 
   SEND_DEBUG("send: data sid=%u did=%u", sid, did);
 
-  if ( (fok = co_ssl_socket_send(ssl_sock, &msg, sizeof(msg))) ) {
-    fok = co_ssl_socket_send(ssl_sock, data, size);
+  if ( co_ssl_socket_send(ssl_sock, &msg, sizeof(msg)) == sizeof(msg) ) {
+    if ( co_ssl_socket_send(ssl_sock, data, size) == (ssize_t)size ) {
+      fok = true;
+    }
   }
 
   return fok;

@@ -17,7 +17,7 @@
 
 static bool corpc_listening_port_on_accept(co_ssl_listening_port * sslp, co_ssl_socket * accepted_sock)
 {
-  return corpc_channel_accept((corpc_listening_port * )sslp, accepted_sock) != NULL;
+  return corpc_channel_accept((corpc_listening_port * )sslp, accepted_sock);
 }
 
 

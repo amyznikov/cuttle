@@ -25,6 +25,12 @@ static bool event_sender_finished = false;
 static bool event_receiver_finished = false;
 
 
+static char CAcert[PATH_MAX];
+static char ServerCert[PATH_MAX];
+static char ServerKey[PATH_MAX];
+static SSL_CTX * g_ssl_ctx;
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 
 static void send_timer_events_to_client(corpc_channel * channel)
@@ -48,9 +54,20 @@ static void send_timer_events_to_client(corpc_channel * channel)
     goto end;
   }
 
-  while ( i++ < 10000 && corpc_stream_write_sm_timer_event(st, &event) ) {
+  while ( i++ < 10 ) {
+
+    CF_DEBUG("C corpc_stream_write_sm_timer_event");
+    if ( !corpc_stream_write_sm_timer_event(st, &event) ) {
+      CF_CRITICAL("corpc_stream_write_sm_timer_event() fails: %s", strerror(errno));
+      break;
+    }
+    CF_DEBUG("R corpc_stream_write_sm_timer_event");
+
     co_sleep(750);
   }
+
+  CF_DEBUG("FINISHED LOOP");
+
 
 end:
 
@@ -65,7 +82,14 @@ end:
 ///////////////////////////////////////////////////////////////////////////////////////////
 static bool on_accept_client_connection(const corpc_channel * channel)
 {
+  const SSL * ssl = NULL;
+
   CF_NOTICE("ACCEPTED NEW CLIENT CONNECTION");
+
+  ssl = corpc_channel_get_ssl(channel);
+  CF_NOTICE("SSL=%p", ssl);
+
+
   return true;
 }
 
@@ -119,10 +143,51 @@ static const corpc_service * server_services[] = {
 ///////////////////////////////////////////////////////////////////////////////////////////
 
 
-int main(/*int argc, char *argv[]*/)
+int main(int argc, char *argv[])
 {
   corpc_server * server = NULL;
   bool fok = false;
+
+
+  for ( int i = 1; i < argc; ++i ) {
+
+    if ( strcmp(argv[i], "help") == 0 || strcmp(argv[i], "-help") == 0 || strcmp(argv[i], "--help") == 0 ) {
+      printf("Usage:\n");
+      printf(" server "
+          "-CA <CAcert> "
+          "-Cert <ServerCert> "
+          "-Key <ServerKey>"
+          "\n");
+      return 0;
+    }
+
+    if ( strcmp(argv[i], "-CA") == 0 ) {
+      if ( ++i == argc ) {
+        fprintf(stderr, "Missing CAcert\n");
+        return 1;
+      }
+      strncpy(CAcert, argv[i], sizeof(CAcert) - 1);
+    }
+    else if ( strcmp(argv[i], "-Cert") == 0 ) {
+      if ( ++i == argc ) {
+        fprintf(stderr, "Missing ServerCert\n");
+        return 1;
+      }
+      strncpy(ServerCert, argv[i], sizeof(ServerCert) - 1);
+    }
+    else if ( strcmp(argv[i], "-Key") == 0 ) {
+      if ( ++i == argc ) {
+        fprintf(stderr, "Missing ServerKey\n");
+        return 1;
+      }
+      strncpy(ServerKey, argv[i], sizeof(ServerKey) - 1);
+    }
+    else {
+      fprintf(stderr, "Invalid argument %s\n", argv[i]);
+      return 1;
+    }
+  }
+
 
 
   cf_set_logfilename("stderr");
@@ -135,6 +200,26 @@ int main(/*int argc, char *argv[]*/)
     goto end;
   }
 
+
+  if ( *CAcert || *ServerCert || *ServerKey ) {
+
+    g_ssl_ctx = cf_ssl_create_context(&(struct cf_ssl_create_context_args ) {
+          .enabled_ciphers = "ALL",
+          .ssl_verify_mode = SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
+
+          .pem_root_certs = (const char *[] ) { CAcert },
+          .nb_pem_root_certs = 1,
+
+          .keycert_file_pairs = (struct cf_keycert_pem_file_pair[] ) {
+                { .cert = ServerCert, .key = ServerKey } },
+          .nb_keycert_file_pairs = 1,
+        });
+
+    if ( !g_ssl_ctx ) {
+      CF_FATAL("cf_ssl_create_context() fails");
+      goto end;
+    }
+  }
 
 
   CF_DEBUG("C co_scheduler_init()");
@@ -166,11 +251,13 @@ int main(/*int argc, char *argv[]*/)
             .sin_addr.s_addr = 0,
           },
 
+          .ssl_ctx = g_ssl_ctx,
+
           .services = server_services,
 
           .onaccept = on_accept_client_connection,
-          .onaccepted = on_accepted_client_connection,
 
+          .onaccepted = on_accepted_client_connection,
           });
 
 

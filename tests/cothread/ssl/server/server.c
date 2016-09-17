@@ -120,7 +120,7 @@ int main(int argc, char *argv[])
 
     if ( strcmp(argv[i], "help") == 0 || strcmp(argv[i], "-help") == 0 || strcmp(argv[i], "--help") == 0 ) {
       printf("Usage:\n");
-      printf(" client "
+      printf(" server "
           "-CA <CAcert> "
           "-Cert <ServerCert> "
           "-Key <ServerKey>"
@@ -165,21 +165,24 @@ int main(int argc, char *argv[])
   }
 
 
-  g_ssl_ctx = cf_ssl_create_context( &(struct cf_ssl_create_context_args ) {
-        .enabled_ciphers = "ALL",
-        .ssl_verify_mode = SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
+  if ( *CAcert || *ServerCert || *ServerKey ) {
 
-        .pem_root_certs = (const char *[] ) { CAcert },
-        .nb_pem_root_certs = 1,
+    g_ssl_ctx = cf_ssl_create_context(&(struct cf_ssl_create_context_args ) {
+          .enabled_ciphers = "ALL",
+          .ssl_verify_mode = SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
 
-        .keycert_file_pairs = (struct cf_keycert_pem_file_pair[]) {
-            { .cert = ServerCert, .key = ServerKey } },
-        .nb_keycert_file_pairs = 1,
-      });
+          .pem_root_certs = (const char *[] ) { CAcert },
+          .nb_pem_root_certs = 1,
 
-  if ( !g_ssl_ctx ) {
-    CF_FATAL("cf_ssl_create_context() fails");
-    goto end;
+          .keycert_file_pairs = (struct cf_keycert_pem_file_pair[] ) {
+                { .cert = ServerCert, .key = ServerKey } },
+          .nb_keycert_file_pairs = 1,
+        });
+
+    if ( !g_ssl_ctx ) {
+      CF_FATAL("cf_ssl_create_context() fails");
+      goto end;
+    }
   }
 
 

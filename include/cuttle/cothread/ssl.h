@@ -63,7 +63,7 @@ co_ssl_socket * co_ssl_socket_accept_new(co_socket ** cc, SSL_CTX * ssl_ctx);
 
 co_socket * co_ssl_listen(const struct sockaddr * addrs, int sock_type, int proto);
 
-
+const SSL * co_ssl_socket_get_ssl(const co_ssl_socket * ssl_sock);
 
 #ifdef __cplusplus
 }

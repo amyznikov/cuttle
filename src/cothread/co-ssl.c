@@ -206,6 +206,12 @@ void co_ssl_socket_close(co_ssl_socket ** ssl_sock, bool abort_conn)
   }
 }
 
+const SSL * co_ssl_socket_get_ssl(const co_ssl_socket * ssl_sock)
+{
+  return ssl_sock ? ssl_sock->ssl : NULL;
+}
+
+
 
 bool co_ssl_socket_set_send_timeout(co_ssl_socket * ssl_sock, int msec)
 {
@@ -321,6 +327,7 @@ bool co_ssl_socket_accept(co_ssl_socket * ssl_sock)
   }
   else if ( ssl_sock->ssl && SSL_accept(ssl_sock->ssl) != 1 ) {
     CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "SSL_accept() fails");
+    errno = EACCES;
   }
   else {
     fok = true;
@@ -399,7 +406,7 @@ end: ;
 
 bool co_ssl_connect(co_ssl_socket * ssl_sock, const struct sockaddr * addrs, int tmo)
 {
-  int status;
+  int status = -256;
   bool fok = false;
 
   if ( !tmo ) {
@@ -414,9 +421,7 @@ bool co_ssl_connect(co_ssl_socket * ssl_sock, const struct sockaddr * addrs, int
   else if ( ssl_sock->ssl && (status = SSL_connect(ssl_sock->ssl)) != 1 ) {
     CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "SSL_connect() fails: status=%d %s", status,
         cf_get_ssl_error_string(ssl_sock->ssl, status));
-  }
-  else {
-    fok = true;
+    fok = false;
   }
 
   return fok;

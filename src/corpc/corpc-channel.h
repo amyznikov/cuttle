@@ -72,7 +72,7 @@ struct corpc_channel {
 };
 
 
-corpc_channel * corpc_channel_accept(corpc_listening_port * sslp, co_ssl_socket * ssl_sock);
+bool corpc_channel_accept(corpc_listening_port * sslp, co_ssl_socket * ssl_sock);
 void corpc_channel_addref(corpc_channel * chp);
 void corpc_channel_relase(corpc_channel ** chp);
 

@@ -266,28 +266,27 @@ static bool send_data_ack(corpc_stream * st)
   return fok;
 }
 
-static ssize_t send_data(corpc_stream * st, const void * data, size_t size)
+static bool send_data(corpc_stream * st, const void * data, size_t size)
 {
   corpc_channel * channel = st->channel;
   write_lock wlock;
-  ssize_t bytes_sent = -1;
+  bool fok = false;
 
   if ( !acquire_write_lock(st, channel, -1, &wlock) ) {
     CF_ERROR("acquire_write_lock() fails");
   }
-  else if ( !corpc_proto_send_data(channel->ssl_sock, st->sid, st->did, data, size) ) {
+  else if ( !(fok = corpc_proto_send_data(channel->ssl_sock, st->sid, st->did, data, size)) ) {
     CF_ERROR("corpc_proto_send_data() fails");
   }
   else {
     channel_state_lock();
     --st->rwnd;
     channel_state_unlock();
-    bytes_sent = size;
   }
 
   release_write_lock(st->channel, &wlock);
 
-  return bytes_sent;
+  return fok;
 }
 
 void corpc_stream_cleanup(struct corpc_stream * st)
@@ -963,6 +962,10 @@ void * corpc_channel_get_client_context(const corpc_channel * channel)
   return channel->client_context;
 }
 
+const SSL * corpc_channel_get_ssl(const corpc_channel * channel)
+{
+  return co_ssl_socket_get_ssl(channel->ssl_sock);
+}
 
 static bool start_channel_thread(corpc_channel * channel, enum corpc_channel_state initial_state)
 {
@@ -1054,35 +1057,29 @@ bool corpc_channel_open(corpc_channel * channel)
 }
 
 
-corpc_channel * corpc_channel_accept(corpc_listening_port * clp, co_ssl_socket * accepted_sock)
+bool corpc_channel_accept(corpc_listening_port * clp, co_ssl_socket * accepted_sock)
 {
   corpc_channel * channel = NULL;
-
-  CF_INFO("ENTER");
 
   if ( !(channel = corpc_channel_new(NULL)) ) {
     CF_CRITICAL("corpc_channel_new() fails: %s", strerror(errno));
   }
   else {
 
+    channel->state = corpc_channel_state_accepting;
     channel->ssl_sock = accepted_sock;
     channel->services = clp->services;
     channel->ssl_ctx = clp->base.ssl_ctx;
     channel->onaccept = clp->onaccept;
     channel->onaccepted = clp->onaccepted;
 
-    channel_state_lock();
-
-    if ( !start_channel_thread(channel, corpc_channel_state_accepting) ) {
-      CF_CRITICAL("start_channel_thread() fails");
+    if ( !co_schedule(corpc_channel_thread, channel, CORPC_CHANNEL_THREAD_STACK_SIZE) ) {
+      CF_CRITICAL("co_schedule(corpc_channel_thread) fails: %s", strerror(errno));
       channel_destroy(&channel);
     }
-
-    channel_state_unlock();
   }
 
-  CF_INFO("LEAVE: channel=%p", channel);
-  return channel;
+  return channel != NULL;
 }
 
 
@@ -1161,7 +1158,7 @@ corpc_stream * corpc_open_stream(corpc_channel * channel, const corpc_open_strea
   }
   else {
     channel_state_lock();
-    while ( st->state == corpc_stream_opening ) {
+    while ( corpc_channel_established(channel) && st->state == corpc_stream_opening ) {
       channel_state_wait(-1);
     }
     if ( !(fok = (st->state == corpc_stream_established)) ) {
@@ -1275,7 +1272,7 @@ bool corpc_stream_read_msg(struct corpc_stream * st, bool (*unpack)(void *, cons
 }
 
 
-ssize_t corpc_stream_write(struct corpc_stream * st, const void * data, size_t size)
+bool corpc_stream_write(struct corpc_stream * st, const void * data, size_t size)
 {
   return send_data(st, data, size);
 }
@@ -1284,9 +1281,10 @@ bool corpc_stream_write_msg(struct corpc_stream * st, ssize_t (*pack)(const void
 {
   void * data = NULL;
   ssize_t size;
+  bool fok = false;
   if ( (size = pack(appmsg, &data)) > 0 ) {
-    size = send_data(st, data, size);
+    fok = send_data(st, data, size);
   }
   free(data);
-  return size > 0;
+  return fok;
 }
