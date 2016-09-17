@@ -1,5 +1,5 @@
 /*
- * corpc-service.h
+ * corpc/service.h
  *
  *  Created on: Sep 11, 2016
  *      Author: amyznikov
@@ -10,17 +10,17 @@
 #ifndef __cuttle_corpc_service_h__
 #define __cuttle_corpc_service_h__
 
-#include "channel.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 
+struct corpc_stream;
+
 typedef
 struct corpc_service_method {
   const char * name;
-  void (*proc)(corpc_stream * st);
+  void (*proc)(struct corpc_stream * st);
 } corpc_service_method;
 
 typedef

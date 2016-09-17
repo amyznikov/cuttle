@@ -21,50 +21,68 @@ struct client_context {
 } client_context;
 
 
+static bool event_sender_finished = false;
+static bool event_receiver_finished = false;
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 
-static void on_smaster_sendfile(corpc_stream * st)
+static void send_timer_events_to_client(corpc_channel * channel)
 {
-  sm_sendfile_request req;
-  sm_sendfile_responce resp;
-  sm_sendfile_chunk chunk;
+  corpc_stream * st = NULL;
+  sm_timer_event event;
+  int i = 0;
 
+  CF_DEBUG("STARTED");
 
-  CF_DEBUG("ENTER");
+  init_sm_timer_event(&event, "SERVER-TIMER-EVENT");
 
-  init_sm_sendfile_request(&req, NULL);
-  init_sm_sendfile_responce(&resp, NULL);
-  init_sm_sendfile_chunk(&chunk, NULL);
+  st = corpc_open_stream(channel,
+      &(struct corpc_open_stream_opts ) {
+            .service = k_smaster_events_service_name,
+            .method = k_smaster_events_ontimer_methd_name,
+          });
 
-  if ( !corpc_stream_read_sm_sendfile_request(st, &req) ) {
-    CF_CRITICAL("corpc_stream_read_sm_sendfile_request() fails");
+  if ( !st ) {
+    CF_CRITICAL("corpc_open_stream() fails");
     goto end;
   }
 
-  resp.resp = strdup("FILENAME OK");
-  if ( !corpc_stream_write_sm_sendfile_responce(st, &resp) ) {
-    CF_CRITICAL("corpc_stream_write_sm_sendfile_responce() fails");
-    goto end;
+  while ( i++ < 10000 && corpc_stream_write_sm_timer_event(st, &event) ) {
+    co_sleep(750);
   }
-
-
-  while ( corpc_stream_read_sm_sendfile_chunk(st, &chunk)) {
-    CF_DEBUG("GOT CHUNK '%s'", chunk.data);
-    cleanup_sm_sendfile_chunk(&chunk);
-  }
-
-  CF_DEBUG("FILE STREAM FINISHED");
-
 
 end:
-  cleanup_sm_sendfile_request(&req);
-  cleanup_sm_sendfile_responce(&resp);
-  cleanup_sm_sendfile_chunk(&chunk);
 
-  CF_DEBUG("LEAVE");
+  corpc_close_stream(&st);
+
+  cleanup_sm_timer_event(&event);
+  event_sender_finished = true;
+  CF_DEBUG("FINISHED");
 }
 
-static void on_client_timer_event(corpc_stream * st)
+
+///////////////////////////////////////////////////////////////////////////////////////////
+static bool on_accept_client_connection(const corpc_channel * channel)
+{
+  CF_NOTICE("ACCEPTED NEW CLIENT CONNECTION");
+  return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static void on_accepted_client_connection(corpc_channel * channel)
+{
+  send_timer_events_to_client(channel);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static void receive_timer_events_from_client(corpc_stream * st)
 {
   sm_timer_event e;
   CF_DEBUG("ENTER");
@@ -72,7 +90,7 @@ static void on_client_timer_event(corpc_stream * st)
   init_sm_timer_event(&e, NULL);
 
   while ( corpc_stream_read_sm_timer_event(st, &e))  {
-    // CF_DEBUG("%s", e.msg);
+    CF_DEBUG("%s", e.msg);
     cleanup_sm_timer_event(&e);
   }
 
@@ -80,24 +98,22 @@ static void on_client_timer_event(corpc_stream * st)
 
   cleanup_sm_timer_event(&e);
 
+  event_receiver_finished = true;
   CF_DEBUG("LEAVE");
 }
 
-
-static corpc_service smaster_service = {
-  .name = k_smaster_service_name,
+static corpc_service client_event_listener_service = {
+  .name = k_smaster_events_service_name,
   .methods = {
-    { .name = k_smaster_sendfile_method_name, .proc = on_smaster_sendfile },
+    { .name = k_smaster_events_ontimer_methd_name, .proc = receive_timer_events_from_client },
     { .name = NULL },
   }
 };
 
-static corpc_service client_timer_listener_service = {
-  .name = k_smaster_events_service_name,
-  .methods = {
-    { .name = k_smaster_events_ontimer_methd_name, .proc = on_client_timer_event },
-    { .name = NULL },
-  }
+
+static const corpc_service * server_services[] = {
+  &client_event_listener_service,
+  NULL
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -140,23 +156,20 @@ int main(/*int argc, char *argv[]*/)
   }
 
   CF_DEBUG("C corpc_server_add_port()");
+
   fok = corpc_server_add_port(server,
       &(struct corpc_listening_port_opts ) {
 
-            .listen_address.in = {
-              .sin_family = AF_INET,
-              .sin_port = htons(6008),
-              .sin_addr.s_addr = 0,
-            },
+          .listen_address.in = {
+            .sin_family = AF_INET,
+            .sin_port = htons(6008),
+            .sin_addr.s_addr = 0,
+          },
 
-            .services = (const corpc_service *[] ) {
-              &smaster_service,
-              &client_timer_listener_service,
-              NULL
-            },
+          .services = server_services,
 
-            .onaccepted = NULL,
-            .ondisconnected = NULL,
+          .onaccept = on_accept_client_connection,
+          .onaccepted = on_accepted_client_connection,
 
           });
 

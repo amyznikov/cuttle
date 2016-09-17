@@ -11,6 +11,7 @@
 #define __cuttle_corpc_channel_h__
 
 #include <cuttle/cothread/ssl.h>
+#include <cuttle/corpc/service.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -78,6 +79,7 @@ struct corpc_channel_opts {
   uint16_t connect_port;
   int connect_tmout_ms;
   SSL_CTX * ssl_ctx;
+  const struct corpc_service ** services;
   void (*onstatechanged)(corpc_channel * channel,
       enum corpc_channel_state,
       int reason);

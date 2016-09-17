@@ -61,6 +61,7 @@ struct corpc_listening_port * corpc_listening_port_new(const struct corpc_listen
 
   if ( (clp = (corpc_listening_port *) co_ssl_listening_port_new(tmpsslopts(opts))) ) {
     clp->services = opts->services;
+    clp->onaccept = opts->onaccept;
     clp->onaccepted = opts->onaccepted;
     clp->ondisconnected = opts->ondisconnected;
   }

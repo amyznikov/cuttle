@@ -48,8 +48,10 @@ struct corpc_channel {
   void * client_context;
   ccarray_t streams; // <corpc_stream*>
 
-  int refs;
+  const struct corpc_service ** services;
+  SSL_CTX * ssl_ctx;
 
+  int refs;
   bool streams_lock;
   bool write_lock;
   bool state_lock;
@@ -58,19 +60,14 @@ struct corpc_channel {
       enum corpc_channel_state,
       int reason);
 
+  bool (*onaccept)(const corpc_channel * channel);
+  void (*onaccepted)(corpc_channel * channel);
+
   struct {
     char * connect_address;
     uint16_t connect_port;
     int connect_tmout_ms;
-    SSL_CTX * ssl_ctx;
   } connect_opts;
-
-  struct {
-    bool (*onaccepted)(struct corpc_channel * channel);
-    void (*ondisconnected)(struct corpc_channel * channel);
-    SSL_CTX * ssl_ctx;
-    const struct corpc_service ** services;
-  } listen_opts;
 
 };
 

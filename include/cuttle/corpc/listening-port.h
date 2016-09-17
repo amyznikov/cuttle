@@ -11,7 +11,6 @@
 #define __cuttle_corpc_listening_port_h__
 
 #include <cuttle/corpc/channel.h>
-#include <cuttle/corpc/corpc-service.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,7 +22,8 @@ struct corpc_listening_port_opts {
   sockaddr_type listen_address;
   SSL_CTX * ssl_ctx;
   const struct corpc_service ** services;
-  bool (*onaccepted)(corpc_channel * channel);
+  bool (*onaccept)(const corpc_channel * channel);
+  void (*onaccepted)(corpc_channel * channel);
   void (*ondisconnected)(corpc_channel * channel);
 } corpc_listening_port_opts;
 

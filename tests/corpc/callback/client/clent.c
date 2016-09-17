@@ -14,12 +14,12 @@
 
 
 
-static bool finished_timer = false;
-static bool finished_sender = false;
+static bool event_sender_finished = false;
+static bool event_receiver_finished = false;
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 
-static void start_timer_events(void * arg)
+static void send_timer_events_to_server(void * arg)
 {
   corpc_channel * channel = arg;
   corpc_stream * st = NULL;
@@ -28,7 +28,7 @@ static void start_timer_events(void * arg)
 
   CF_DEBUG("STARTED");
 
-  init_sm_timer_event(&event, "ON-TIMER-EVENT");
+  init_sm_timer_event(&event, "CLIENT-TIMER-EVENT");
 
   st = corpc_open_stream(channel,
       &(struct corpc_open_stream_opts ) {
@@ -42,7 +42,7 @@ static void start_timer_events(void * arg)
   }
 
   while ( i++ < 10000 && corpc_stream_write_sm_timer_event(st, &event) ) {
-    co_sleep(1);
+    co_sleep(500);
   }
 
 end:
@@ -50,71 +50,45 @@ end:
   corpc_close_stream(&st);
 
   cleanup_sm_timer_event(&event);
-  finished_timer = true;
+  event_sender_finished = true;
   CF_DEBUG("FINISHED");
 }
-
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 
-static void send_file_to_server(void * arg)
+static void receive_timer_events_from_server(corpc_stream * st)
 {
-  corpc_channel * channel = arg;
-  corpc_stream * st = NULL;
-  sm_sendfile_request req;
-  sm_sendfile_responce resp;
-  sm_sendfile_chunk chunk;
+  sm_timer_event e;
+  CF_DEBUG("ENTER");
 
-  CF_DEBUG("STARTED");
+  init_sm_timer_event(&e, NULL);
 
-  init_sm_sendfile_request(&req, "THIS IS FILE NAME");
-  init_sm_sendfile_responce(&resp, NULL);
-  init_sm_sendfile_chunk(&chunk, "THIS IS FILE CHUNK");
-
-
-  st = corpc_open_stream(channel,
-      &(struct corpc_open_stream_opts ) {
-            .service = k_smaster_service_name,
-            .method = k_smaster_sendfile_method_name,
-          });
-
-  if ( !st ) {
-    CF_CRITICAL("corpc_open_stream() fails: %s", strerror(errno));
-    goto end;
+  while ( corpc_stream_read_sm_timer_event(st, &e))  {
+    CF_DEBUG("%s", e.msg);
+    cleanup_sm_timer_event(&e);
   }
 
-  if ( !corpc_stream_write_sm_sendfile_request(st, &req) ) {
-    CF_CRITICAL("corpc_stream_write_sm_sendfile_request() fails: %s", strerror(errno));
-    goto end;
-  }
+  CF_DEBUG("corpc_stream_read_sm_timer_event() fails");
 
+  cleanup_sm_timer_event(&e);
 
-  if ( !corpc_stream_read_sm_sendfile_responce(st, &resp) ) {
-    CF_CRITICAL("corpc_stream_read_sm_sendfile_responce() fails: %s", strerror(errno));
-    goto end;
-  }
-
-  CF_DEBUG("responce: '%s'", resp.resp);
-
-  for ( int i = 0; i < 10; ++i ) {
-    if ( !corpc_stream_write_sm_sendfile_chunk(st, &chunk) ) {
-      CF_CRITICAL("corpc_stream_write_sm_sendfile_chunk() fails: %s", strerror(errno));
-      break;
-    }
-    co_sleep(100);
-  }
-
-
-end:
-
-  corpc_close_stream(&st);
-
-  cleanup_sm_sendfile_request(&req);
-  cleanup_sm_sendfile_responce(&resp);
-  cleanup_sm_sendfile_chunk(&chunk);
-
-  CF_DEBUG("FINISHED");
+  event_receiver_finished = true;
+  CF_DEBUG("LEAVE");
 }
+
+static const corpc_service server_event_listener_service = {
+  .name = k_smaster_events_service_name,
+  .methods = {
+    { .name = k_smaster_events_ontimer_methd_name, .proc = receive_timer_events_from_server },
+    { .name = NULL },
+  }
+};
+
+static const corpc_service * client_services[] = {
+  &server_event_listener_service,
+  NULL
+};
+
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -130,6 +104,7 @@ static void client_main(void * arg )
   channel = corpc_channel_new(&(struct corpc_channel_opts ) {
         .connect_address = "localhost",
         .connect_port = 6008,
+        .services = client_services,
         .ssl_ctx = NULL,
         .onstatechanged = NULL,
       });
@@ -147,15 +122,10 @@ static void client_main(void * arg )
   }
 
 
-  if ( !co_schedule(start_timer_events, channel, 1024 * 1024) ) {
+  if ( !co_schedule(send_timer_events_to_server, channel, 1024 * 1024) ) {
     CF_FATAL("co_schedule(start_timer_events) fails: %s", strerror(errno));
     goto end;
   }
-
-//  if ( !co_schedule(send_file_to_server, channel, 1024 * 1024) ) {
-//    CF_FATAL("co_schedule(send_file_to_server) fails: %s", strerror(errno));
-//    goto end;
-//  }
 
 end:
 
@@ -190,7 +160,7 @@ int main(/*int argc, char *argv[]*/)
     goto end;
   }
 
-  while ( !finished_timer ) {
+  while ( !event_sender_finished ) {
     usleep(20 * 1000);
   }
 

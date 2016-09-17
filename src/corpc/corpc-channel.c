@@ -475,6 +475,26 @@ static bool start_service_method_thread(corpc_stream * st, const struct corpc_se
   return fok;
 }
 
+
+
+static void on_accepted_thread(void * arg)
+{
+  corpc_channel * channel = arg;
+  CF_DEBUG("STARTED");
+  channel->onaccepted(channel);
+  CF_DEBUG("FINISHED");
+}
+
+static bool start_on_accepted_thread(corpc_channel * channel)
+{
+  return co_schedule(on_accepted_thread, channel, 1024 * 1024);
+}
+
+
+
+
+
+
 static void on_create_stream_request(corpc_channel * channel, comsg ** msgp)
 {
   comsg_create_stream_request * rc = &(*msgp)->create_stream_request;
@@ -497,6 +517,12 @@ static void on_create_stream_request(corpc_channel * channel, comsg ** msgp)
         create_stream_responce_internal_error;
 
 
+  if( !channel->services ) {
+    status = create_stream_responce_no_service;
+    goto end;
+  }
+
+
   memcpy(service_name, rc->details.pack + 0, service_name_length);
   memcpy(method_name, rc->details.pack + service_name_length, method_name_length);
 
@@ -504,9 +530,9 @@ static void on_create_stream_request(corpc_channel * channel, comsg ** msgp)
   method_name[method_name_length] = 0;
 
 
-  for ( int i = 0; channel->listen_opts.services[i] != NULL; ++i ) {
-    if ( strcmp(service_name, channel->listen_opts.services[i]->name) == 0 ) {
-      service = channel->listen_opts.services[i];
+  for ( int i = 0; channel->services[i] != NULL; ++i ) {
+    if ( strcmp(service_name, channel->services[i]->name) == 0 ) {
+      service = channel->services[i];
       break;
     }
   }
@@ -700,6 +726,8 @@ static void on_data_ack(corpc_channel * channel, comsg ** msgp)
 }
 
 
+
+
 static void corpc_channel_thread(void * arg)
 {
   struct corpc_channel * channel = arg;
@@ -717,14 +745,16 @@ static void corpc_channel_thread(void * arg)
   else if ( channel->state == corpc_channel_state_accepting ) {
 
     channel_state_unlock();
-    fok = co_ssl_socket_accept(channel->ssl_sock);
+    if ( !(fok = co_ssl_socket_accept(channel->ssl_sock)) ) {
+      CF_CRITICAL("co_ssl_socket_accept() fails");
+    }
+    else if ( channel->onaccept && !(fok = channel->onaccept(channel)) ) {
+      CF_CRITICAL("channel->onaccept() fails");
+    }
     channel_state_lock();
 
     if ( fok ) {
       set_channel_state(channel, corpc_channel_state_accepted, 0);
-    }
-    else {
-      CF_CRITICAL("co_ssl_socket_accept() fails");
     }
   }
   else {
@@ -738,9 +768,16 @@ static void corpc_channel_thread(void * arg)
   co_ssl_socket_set_recv_timeout(channel->ssl_sock, -1);
   channel_state_unlock();
 
+
   if ( !(msg = malloc(sizeof(*msg))) ) {
-    CF_FATAL("malloc(msg) fails");
+    CF_FATAL("malloc(msg) fails: %s", strerror(errno));
   }
+
+  CF_DEBUG("channel->onaccepted = %p", channel->onaccepted);
+  if ( channel->onaccepted && !start_on_accepted_thread(channel) ) {
+    CF_FATAL("start_on_accepted_thread() fails: %s", strerror(errno));
+  }
+
 
  // CF_WARNING("channel->ssl_sock=%p", channel->ssl_sock);
   while ( corpc_proto_recv_msg(channel->ssl_sock, msg) ) {
@@ -833,8 +870,10 @@ bool corpc_channel_init(struct corpc_channel * channel, const struct corpc_chann
     }
     channel->connect_opts.connect_port = opts->connect_port;
     channel->connect_opts.connect_tmout_ms = opts->connect_tmout_ms;
-    channel->connect_opts.ssl_ctx = opts->ssl_ctx;
     channel->onstatechanged = opts->onstatechanged;
+
+    channel->services = opts->services;
+    channel->ssl_ctx = opts->ssl_ctx;
   }
 
   fok  = true;
@@ -959,7 +998,7 @@ static bool ssl_server_connect(corpc_channel * channel)
       channel->connect_opts.connect_tmout_ms) ) {
     CF_CRITICAL("co_server_resolve() fails");
   }
-  else if ( !(ssl_sock = co_ssl_socket_new(ai->ai_family, SOCK_STREAM, IPPROTO_TCP, channel->connect_opts.ssl_ctx)) ) {
+  else if ( !(ssl_sock = co_ssl_socket_new(ai->ai_family, SOCK_STREAM, IPPROTO_TCP, channel->ssl_ctx)) ) {
     CF_CRITICAL("co_ssl_socket_new() fails");
   }
   else {
@@ -995,7 +1034,7 @@ bool corpc_channel_open(corpc_channel * channel)
 
   channel_state_lock();
 
-  if ( channel->state == corpc_channel_state_connected ) {
+  if ( corpc_channel_established(channel) ) {
     fok = true;
   }
   else if ( channel->state != corpc_channel_state_idle ) {
@@ -1027,10 +1066,10 @@ corpc_channel * corpc_channel_accept(corpc_listening_port * clp, co_ssl_socket *
   else {
 
     channel->ssl_sock = accepted_sock;
-    channel->listen_opts.onaccepted = clp->onaccepted;
-    channel->listen_opts.ondisconnected = clp->ondisconnected;
-    channel->listen_opts.services = clp->services;
-    channel->listen_opts.ssl_ctx = clp->base.ssl_ctx;
+    channel->services = clp->services;
+    channel->ssl_ctx = clp->base.ssl_ctx;
+    channel->onaccept = clp->onaccept;
+    channel->onaccepted = clp->onaccepted;
 
     channel_state_lock();
 
