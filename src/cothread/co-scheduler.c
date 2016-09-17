@@ -197,7 +197,7 @@ static void * epoll_listener_thread(void * arg)
 {
   (void) (arg);
 
-  const int MAX_EPOLL_EVENTS = 5000;
+  const int MAX_EPOLL_EVENTS = 1000;
   struct epoll_event events[MAX_EPOLL_EVENTS];
 
   struct iorq * e;
@@ -334,7 +334,9 @@ static inline struct cclist_node * add_waiter(struct co_scheduler_context * core
 
 static inline void remove_waiter(struct co_scheduler_context * core, struct cclist_node * node)
 {
-  cclist_erase(&core->waiters, node);
+  if ( node ) {
+    cclist_erase(&core->waiters, node);
+  }
 }
 
 
@@ -458,11 +460,17 @@ static void schedule_request_handler(void * arg)
                   .tmo = -1,
                 }));
 
-        if ( !epoll_add(&cb->e, creq.io.flags) ) {
-          CF_FATAL("BUG: epoll_add(so=%d) fails: %s", creq.io.so, strerror(errno));
-          exit(1);
+        if ( !cb->node ) {
+          status = errno ? errno : ENOMEM;
+          CF_FATAL("add_waiter() fails");
         }
-        status = 0;
+        else if ( !epoll_add(&cb->e, creq.io.flags) ) {
+          status = errno;
+          CF_FATAL("epoll_add(so=%d) fails: %s", creq.io.so, strerror(errno));
+        }
+        else {
+          status = 0;
+        }
       }
     }
 
@@ -767,12 +775,16 @@ void co_sleep(uint32_t msec)
             &(struct io_waiter ) {
                   .co = co_current(),
                   .tmo = co_current_time_ms() + msec,
-                  .flags = CO_YIELD
+                  .flags = (msec == 0 ? CO_YIELD : 0)
                 });
 
-    co_call(current_core->main);
-
-    remove_waiter(current_core, node);
+    if ( !node ) {
+      CF_FATAL("add_waiter() fails");
+    }
+    else {
+      co_call(current_core->main);
+      remove_waiter(current_core, node);
+    }
   }
   else if ( msec == 0 ) {
     sched_yield();
@@ -915,6 +927,11 @@ static void co_thread_lock_internal(co_thread_lock_t * obj)
                 .mask = EPOLLIN
               });
 
+  if ( !node ) {
+    CF_FATAL("add_waiter() fails");
+    exit(1);
+  }
+
   epoll_queue(&obj->e, cclist_peek(node));
 
   while ( obj->co ) {
@@ -1036,6 +1053,11 @@ int co_thread_wait(co_thread_lock_t ** objp, int tmo)
               .flags = MTX_WAKEUP_WAITING
             });
 
+    if ( !node ) {
+      CF_FATAL("add_waiter() fails");
+      exit(1);
+    }
+
     epoll_queue(&obj->e, iow = cclist_peek(node));
 
     co_thread_unlock_internal(obj);
@@ -1149,34 +1171,40 @@ co_socket * co_socket_attach_and_connect(int so, const struct sockaddr *address,
 bool co_socket_connect(co_socket * cc, const struct sockaddr *address, socklen_t addrslen, int tmo_ms)
 {
   struct io_waiter * w;
-  int status;
+  int status = -1;
 
   struct cclist_node * node =
       add_waiter(current_core, &(struct io_waiter ) {
-        .co = co_current(),
-        .tmo = tmo_ms >= 0 ? co_current_time_ms() + tmo_ms: -1,
-        .mask = EPOLLOUT
-      });
+            .co = co_current(),
+            .tmo = tmo_ms >= 0 ? co_current_time_ms() + tmo_ms : -1,
+            .mask = EPOLLOUT
+          });
 
-  epoll_queue(&cc->e, w = cclist_peek(node));
-
-  errno = 0;
-  if ( (status = connect(cc->e.so, address, addrslen)) == -1 && errno == EINPROGRESS ) {
-    do {
-      co_call(current_core->main);
-    } while ( !(w->revents & (EPOLLOUT | EPOLLERR)) && (w->tmo == -1 || co_current_time_ms() <= w->tmo) );
-
-    if ( !(w->revents & EPOLLERR) ) {
-      status = 0;
-    }
-    else {
-      errno = so_get_error(cc->e.so);
-      status = -1;
-    }
+  if ( !node ) {
+    CF_FATAL("add_waiter() fails");
   }
+  else {
 
-  epoll_dequeue(&cc->e, w);
-  remove_waiter(current_core, node);
+    epoll_queue(&cc->e, w = cclist_peek(node));
+
+    errno = 0;
+    if ( (status = connect(cc->e.so, address, addrslen)) == -1 && errno == EINPROGRESS ) {
+      do {
+        co_call(current_core->main);
+      } while ( !(w->revents & (EPOLLOUT | EPOLLERR)) && (w->tmo == -1 || co_current_time_ms() <= w->tmo) );
+
+      if ( !(w->revents & EPOLLERR) ) {
+        status = 0;
+      }
+      else {
+        errno = so_get_error(cc->e.so);
+        status = -1;
+      }
+    }
+
+    epoll_dequeue(&cc->e, w);
+    remove_waiter(current_core, node);
+  }
 
   return status == 0;
 }
@@ -1242,34 +1270,40 @@ ssize_t co_socket_send(co_socket * cc, const void * buf, size_t buf_size, int fl
               .mask = EPOLLOUT
               });
 
-    struct io_waiter * w  =
-          cclist_peek(node);
+    if ( !node ) {
+      CF_FATAL("add_waiter() fails");
+    }
+    else {
 
-    epoll_queue(&cc->e, w);
+      struct io_waiter * w  =
+            cclist_peek(node);
 
-    sent = 0;
-    while ( sent < (ssize_t) buf_size ) {
+      epoll_queue(&cc->e, w);
 
-      if ( (size = send(cc->e.so, pb + sent, buf_size - sent, flags | MSG_NOSIGNAL | MSG_DONTWAIT)) > 0 ) {
-        sent += size;
-        if ( cc->sendtmo >= 0 ) {
-          w->tmo = co_current_time_ms() + cc->sendtmo * 1000;
+      sent = 0;
+      while ( sent < (ssize_t) buf_size ) {
+
+        if ( (size = send(cc->e.so, pb + sent, buf_size - sent, flags | MSG_NOSIGNAL | MSG_DONTWAIT)) > 0 ) {
+          sent += size;
+          if ( cc->sendtmo >= 0 ) {
+            w->tmo = co_current_time_ms() + cc->sendtmo * 1000;
+          }
         }
-      }
-      else if ( errno == EAGAIN ) {
-        co_call(current_core->main);
-        if ( !(w->revents & EPOLLOUT) ) {
+        else if ( errno == EAGAIN ) {
+          co_call(current_core->main);
+          if ( !(w->revents & EPOLLOUT) ) {
+            break;
+          }
+        }
+        else {
+          sent = size;
           break;
         }
       }
-      else {
-        sent = size;
-        break;
-      }
-    }
 
-    epoll_dequeue(&cc->e, w);
-    remove_waiter(current_core, node);
+      epoll_dequeue(&cc->e, w);
+      remove_waiter(current_core, node);
+    }
   }
 
   return sent;
@@ -1290,28 +1324,33 @@ ssize_t co_socket_recv(co_socket * cc, void * buf, size_t buf_size, int flags)
 
     struct cclist_node * node =
         add_waiter(current_core, &(struct io_waiter ) {
-          .co = co_current(),
-          .tmo = cc->recvtmo >= 0 ? co_current_time_ms() + cc->recvtmo : -1,
-          .mask = EPOLLIN
-        });
+              .co = co_current(),
+              .tmo = cc->recvtmo >= 0 ? co_current_time_ms() + cc->recvtmo : -1,
+              .mask = EPOLLIN
+            });
 
-
-    epoll_queue(&cc->e, w = cclist_peek(node));
-
-    size = 0;
-    while ( (size = recv(cc->e.so, buf, buf_size, flags | MSG_DONTWAIT | MSG_NOSIGNAL)) < 0 && errno == EAGAIN ) {
-      if ( w->tmo != -1 && co_current_time_ms() >= w->tmo ) {
-        errno = ETIME;
-        break;
-      }
-      co_call(current_core->main);
+    if ( !node ) {
+      CF_FATAL("add_waiter() fails");
     }
+    else {
 
-    epoll_dequeue(&cc->e, w);
-    remove_waiter(current_core, node);
+      epoll_queue(&cc->e, w = cclist_peek(node));
 
-    if ( size == 0 ) {
-      errno = ECONNRESET;
+      size = 0;
+      while ( (size = recv(cc->e.so, buf, buf_size, flags | MSG_DONTWAIT | MSG_NOSIGNAL)) < 0 && errno == EAGAIN ) {
+        if ( w->tmo != -1 && co_current_time_ms() >= w->tmo ) {
+          errno = ETIME;
+          break;
+        }
+        co_call(current_core->main);
+      }
+
+      epoll_dequeue(&cc->e, w);
+      remove_waiter(current_core, node);
+
+      if ( size == 0 ) {
+        errno = ECONNRESET;
+      }
     }
   }
 
@@ -1333,22 +1372,28 @@ co_socket * co_socket_accept_new(co_socket * cc, struct sockaddr * addrs, sockle
 
     struct cclist_node * node =
         add_waiter(current_core, &(struct io_waiter ) {
-          .co = co_current(),
-          .tmo = cc->recvtmo >= 0 ? co_current_time_ms() + cc->recvtmo : -1,
-          .mask = EPOLLIN
-        });
+              .co = co_current(),
+              .tmo = cc->recvtmo >= 0 ? co_current_time_ms() + cc->recvtmo : -1,
+              .mask = EPOLLIN
+            });
 
-    epoll_queue(&cc->e, w = cclist_peek(node));
-
-    while ( (so = accept(cc->e.so, addrs, addrslen)) == -1 && errno == EAGAIN ) {
-      if ( w->tmo != -1 && co_current_time_ms() >= w->tmo ) {
-        break;
-      }
-      co_call(current_core->main);
+    if ( !node ) {
+      CF_FATAL("add_waiter() fails");
     }
+    else {
 
-    epoll_dequeue(&cc->e, w);
-    remove_waiter(current_core, node);
+      epoll_queue(&cc->e, w = cclist_peek(node));
+
+      while ( (so = accept(cc->e.so, addrs, addrslen)) == -1 && errno == EAGAIN ) {
+        if ( w->tmo != -1 && co_current_time_ms() >= w->tmo ) {
+          break;
+        }
+        co_call(current_core->main);
+      }
+
+      epoll_dequeue(&cc->e, w);
+      remove_waiter(current_core, node);
+    }
 
     if ( so != -1 ) {
       cc2 = co_socket_attach(so);
@@ -1378,17 +1423,20 @@ uint32_t co_io_wait(int so, uint32_t events, int msec)
         })),
   };
 
-  if ( !epoll_add(&e, events) ) {
-    CF_CRITICAL("emgr_add(so=%d) fails: %s", so, strerror(errno));
-    raise(SIGINT);// for gdb
-    exit(1);
+  if ( !node ) {
+    CF_FATAL("add_waiter() fails");
+    revents = EPOLLERR;
+  }
+  else if ( !epoll_add(&e, events) ) {
+    CF_FATAL("emgr_add(so=%d) fails: %s", so, strerror(errno));
+    revents = EPOLLERR;
+  }
+  else {
+    co_call(current_core->main);
+    revents = e.head->revents;
+    epoll_remove(so);
   }
 
-  co_call(current_core->main);
-
-  revents = e.head->revents;
-
-  epoll_remove(so);
   remove_waiter(current_core, node);
 
   return revents;

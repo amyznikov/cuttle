@@ -23,7 +23,6 @@ struct corpc_listening_port_opts {
   sockaddr_type listen_address;
   SSL_CTX * ssl_ctx;
   const struct corpc_service ** services;
-  int nb_services;
   bool (*onaccepted)(corpc_channel * channel);
   void (*ondisconnected)(corpc_channel * channel);
 } corpc_listening_port_opts;

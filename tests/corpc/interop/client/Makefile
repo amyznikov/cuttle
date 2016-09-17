@@ -21,7 +21,7 @@ bindir  = $(prefix)/bin
 incdir  = $(prefix)/include
 libdir  = $(prefix)/lib
 
-INCLUDES+= -I. -I$(CURDIR)/../../../include
+INCLUDES+= -I. -I$(CURDIR)/../../../../include
 SOURCES = $(wildcard *.c ../proto/*.c)
 HEADERS = $(wildcard *.h ../proto/*.h)
 MODULES = $(foreach s,$(SOURCES),$(addsuffix .o,$(basename $(s))))
@@ -41,7 +41,7 @@ LDFLAGS = $(CFLAGS)
 # STRIP = $(cross)strip --strip-all
 STRIP = @echo "don't strip "
 
-LIBCUTTLE=../../../libcuttle.a
+LIBCUTTLE=../../../../libcuttle.a
 
 LDLIBS += $(LIBCUTTLE) /usr/local/lib/libpcl.a -L/usr/local/lib -lssl -lcrypto -lpthread
 

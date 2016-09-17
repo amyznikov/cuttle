@@ -21,11 +21,9 @@ extern "C" {
 #endif
 
 
-
 typedef
 struct corpc_server
   corpc_server;
-
 
 typedef
 struct corpc_server_opts {
@@ -34,12 +32,10 @@ struct corpc_server_opts {
 } corpc_server_opts;
 
 
-
 corpc_server * corpc_server_new(const corpc_server_opts * opts);
 void corpc_server_destroy(corpc_server ** cosrv);
 bool corpc_server_add_port(corpc_server * cosrv, const corpc_listening_port_opts * opts);
 bool corpc_server_start(corpc_server * cosrv);
-
 
 
 #ifdef __cplusplus

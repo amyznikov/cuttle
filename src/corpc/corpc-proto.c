@@ -12,6 +12,10 @@
 #include <alloca.h>
 #include "corpc-proto.h"
 
+#define SEND_DEBUG(...)
+  //  CF_NOTICE(__VA_ARGS__)
+#define RECV_DEBUG(...)
+  //  CF_NOTICE(__VA_ARGS__)
 
 #define co_proto_recv_chunk(ssl_sock, data) \
     co_proto_read(ssl_sock,(data),sizeof(*(data)))
@@ -104,7 +108,7 @@ bool corpc_proto_recv_msg(co_ssl_socket * ssl_sock, comsg * msgp)
   switch (msgp->hdr.code) {
 
     case co_msg_create_stream_req :
-      CF_NOTICE("recv: create_stream_req");
+      RECV_DEBUG("recv: create_stream_req sid=%u did=%u", msgp->hdr.sid, msgp->hdr.did);
 
       if ( msgp->hdr.pldsize > CORPC_MAX_PAYLOAD_SIZE ) {
         CF_CRITICAL("msgp->hdr.size is too large: %u", msgp->hdr.pldsize);
@@ -116,6 +120,8 @@ bool corpc_proto_recv_msg(co_ssl_socket * ssl_sock, comsg * msgp)
         goto end;
       }
 
+      msgp->create_stream_request.details.rwnd = ntohs(
+          msgp->create_stream_request.details.rwnd);
       msgp->create_stream_request.details.service_name_length = ntohs(
           msgp->create_stream_request.details.service_name_length);
       msgp->create_stream_request.details.method_name_length = ntohs(
@@ -127,7 +133,7 @@ bool corpc_proto_recv_msg(co_ssl_socket * ssl_sock, comsg * msgp)
 
 
     case co_msg_create_stream_resp:
-      CF_NOTICE("recv: create_stream_resp");
+      RECV_DEBUG("recv: create_stream_resp sid=%u did=%u", msgp->hdr.sid, msgp->hdr.did);
 
       if ( msgp->hdr.pldsize != sizeof(msgp->create_stream_responce.details) ) {
         CF_CRITICAL("msgp->hdr.size is too large: %u. Expected %zu", msgp->hdr.pldsize, sizeof(msgp->create_stream_responce.details));
@@ -140,6 +146,7 @@ bool corpc_proto_recv_msg(co_ssl_socket * ssl_sock, comsg * msgp)
       }
 
       msgp->create_stream_responce.details.status = ntohs(msgp->create_stream_responce.details.status);
+      msgp->create_stream_responce.details.rwnd = ntohs(msgp->create_stream_responce.details.rwnd);
 
       break;
 
@@ -147,7 +154,7 @@ bool corpc_proto_recv_msg(co_ssl_socket * ssl_sock, comsg * msgp)
 
 
     case co_msg_close_stream_req:
-      CF_NOTICE("recv: close_stream_req");
+      RECV_DEBUG("recv: close_stream_req sid=%u did=%u", msgp->hdr.sid, msgp->hdr.did);
 
       if ( msgp->hdr.pldsize != sizeof(msgp->close_stream.details) ) {
         CF_CRITICAL("msgp->hdr.size is too large: %u. Expected %zu", msgp->hdr.pldsize, sizeof(msgp->close_stream.details));
@@ -166,7 +173,7 @@ bool corpc_proto_recv_msg(co_ssl_socket * ssl_sock, comsg * msgp)
 
 
     case co_msg_data:
-      CF_NOTICE("recv: data");
+      RECV_DEBUG("recv: data sid=%u did=%u", msgp->hdr.sid, msgp->hdr.did);
 
       if ( msgp->hdr.pldsize > CORPC_MAX_PAYLOAD_SIZE ) {
         CF_CRITICAL("msgp->hdr.size is too large: %u", msgp->hdr.pldsize);
@@ -180,6 +187,15 @@ bool corpc_proto_recv_msg(co_ssl_socket * ssl_sock, comsg * msgp)
 
     break;
 
+    case co_msg_data_ack:
+      RECV_DEBUG("recv: data_ack sid=%u did=%u", msgp->hdr.sid, msgp->hdr.did);
+
+      if ( msgp->hdr.pldsize != 0 ) {
+        CF_CRITICAL("msgp->hdr.size is too large: %u. Expected 0", msgp->hdr.pldsize);
+        goto end;
+      }
+
+      break;
 
     default:
       CF_CRITICAL("Invalid msgp->hdr.code=%u", msgp->hdr.code);
@@ -205,7 +221,7 @@ end:
 
 
 
-bool corpc_proto_send_create_stream_request(co_ssl_socket * ssl_sock, uint16_t sid, const char * service, const char * method)
+bool corpc_proto_send_create_stream_request(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t rwnd, const char * service, const char * method)
 {
   struct comsg_create_stream_request * msg;
 
@@ -220,6 +236,7 @@ bool corpc_proto_send_create_stream_request(co_ssl_socket * ssl_sock, uint16_t s
   msg->hdr.sid = sid;
   msg->hdr.did = 0;
   msg->hdr.pldsize = payload_size;
+  msg->details.rwnd = rwnd;
   msg->details.service_name_length = service_name_length;
   msg->details.method_name_length = method_name_length;
   memcpy(msg->details.pack, service, service_name_length);
@@ -228,16 +245,17 @@ bool corpc_proto_send_create_stream_request(co_ssl_socket * ssl_sock, uint16_t s
   set_crc(&msg->hdr, msgsize);
 
   htondr(&msg->hdr);
+  msg->details.rwnd = htons(msg->details.rwnd);
   msg->details.service_name_length = htons(service_name_length);
   msg->details.method_name_length = htons(method_name_length);
 
-  CF_NOTICE("send: create_stream_request");
+  SEND_DEBUG("send: create_stream_request sid=%u", sid);
 
   return co_ssl_socket_send(ssl_sock, msg, msgsize);
 }
 
 
-bool corpc_proto_send_create_stream_responce(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did, uint16_t status)
+bool corpc_proto_send_create_stream_responce(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did, uint16_t rwnd, uint16_t status)
 {
   struct comsg_create_stream_responce msg = {
     .hdr = {
@@ -248,7 +266,8 @@ bool corpc_proto_send_create_stream_responce(co_ssl_socket * ssl_sock, uint16_t 
       .did = did,
     },
     .details = {
-      .status = status
+      .status = status,
+      .rwnd = rwnd
     }
   };
 
@@ -257,9 +276,10 @@ bool corpc_proto_send_create_stream_responce(co_ssl_socket * ssl_sock, uint16_t 
 
   htondr(&msg.hdr);
   msg.details.status = htons(msg.details.status);
+  msg.details.rwnd = htons(msg.details.rwnd);
 
 
-  CF_NOTICE("send: create_stream_responce");
+  SEND_DEBUG("send: create_stream_responce sid=%u did=%u", sid, did);
   return co_ssl_socket_send(ssl_sock, &msg, sizeof(msg));
 }
 
@@ -282,7 +302,26 @@ bool corpc_proto_send_close_stream(co_ssl_socket * ssl_sock, uint16_t sid, uint1
   htondr(&msg.hdr);
   msg.details.status = htons(msg.details.status);
 
-  CF_NOTICE("send: close_stream");
+  SEND_DEBUG("send: close_stream");
+  return co_ssl_socket_send(ssl_sock, &msg, sizeof(msg));
+}
+
+bool corpc_proto_send_data_ack(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did)
+{
+  struct comsg_data_ack msg = {
+    .hdr = {
+      .code = co_msg_data_ack,
+      .pldsize = 0,
+      .sid = sid,
+      .did = did,
+    }
+  };
+
+  set_crc(&msg.hdr, sizeof(msg));
+
+  htondr(&msg.hdr);
+
+  SEND_DEBUG("send: data_ack sid=%u did=%u", sid, did);
   return co_ssl_socket_send(ssl_sock, &msg, sizeof(msg));
 }
 
@@ -302,7 +341,7 @@ bool corpc_proto_send_data(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did,
 
   htondr(&msg);
 
-  CF_NOTICE("send: data");
+  SEND_DEBUG("send: data sid=%u did=%u", sid, did);
 
   if ( (fok = co_ssl_socket_send(ssl_sock, &msg, sizeof(msg))) ) {
     fok = co_ssl_socket_send(ssl_sock, data, size);
@@ -310,3 +349,4 @@ bool corpc_proto_send_data(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did,
 
   return fok;
 }
+

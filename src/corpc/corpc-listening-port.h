@@ -22,7 +22,6 @@ typedef
 struct corpc_listening_port {
   struct co_ssl_listening_port base;
   const struct corpc_service ** services;
-  int nb_services;
   bool (*onaccepted)(corpc_channel * channel);
   void (*ondisconnected)(corpc_channel * channel);
 } corpc_listening_port;

@@ -26,7 +26,7 @@ struct corpc_stream {
   corpc_stream_state state;
   uint16_t sid;
   uint16_t did;
-  int refs;
+  uint16_t rwnd;
 };
 
 typedef
@@ -35,6 +35,7 @@ struct corpc_stream_opts {
   corpc_stream_state state;
   uint16_t sid;
   uint16_t did;
+  uint16_t rwnd;
 } corpc_stream_opts;
 
 
@@ -69,7 +70,6 @@ struct corpc_channel {
     void (*ondisconnected)(struct corpc_channel * channel);
     SSL_CTX * ssl_ctx;
     const struct corpc_service ** services;
-    int nb_services;
   } listen_opts;
 
 };

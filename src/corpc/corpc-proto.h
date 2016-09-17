@@ -26,6 +26,7 @@ enum {
   co_msg_create_stream_resp = 2,
   co_msg_close_stream_req = 3,
   co_msg_data = 4,
+  co_msg_data_ack = 5,
 };
 
 
@@ -66,6 +67,7 @@ typedef
 struct comsg_create_stream_request {
   struct comsghdr hdr;
   struct {
+    uint16_t rwnd;
     uint16_t service_name_length;
     uint16_t method_name_length;
     uint8_t  pack[];
@@ -77,6 +79,7 @@ struct comsg_create_stream_responce {
   struct comsghdr hdr;
   struct {
     uint16_t status;
+    uint16_t rwnd;
   } details;
 } comsg_create_stream_responce;
 
@@ -104,6 +107,14 @@ struct comsg_data {
 } comsg_data;
 
 typedef
+struct comsg_data_ack {
+  struct comsghdr hdr;
+} comsg_data_ack;
+
+
+//
+
+typedef
 struct comsg {
   union {
     comsghdr hdr;
@@ -111,6 +122,7 @@ struct comsg {
     comsg_create_stream_responce create_stream_responce;
     comsg_close_stream close_stream;
     comsg_data data;
+    comsg_data_ack data_ack;
   };
 } comsg;
 
@@ -119,10 +131,11 @@ struct comsg {
 
 
 bool corpc_proto_recv_msg(co_ssl_socket * ssl_sock, comsg * msgp);
-bool corpc_proto_send_create_stream_request(co_ssl_socket * ssl_sock, uint16_t sid, const char * service, const char * method);
-bool corpc_proto_send_create_stream_responce(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did, uint16_t status);
+bool corpc_proto_send_create_stream_request(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t rwnd, const char * service, const char * method);
+bool corpc_proto_send_create_stream_responce(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did, uint16_t rwnd, uint16_t status);
 bool corpc_proto_send_close_stream(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did, uint16_t status);
 bool corpc_proto_send_data(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did, const void * data, size_t size);
+bool corpc_proto_send_data_ack(co_ssl_socket * ssl_sock, uint16_t sid, uint16_t did);
 
 
 

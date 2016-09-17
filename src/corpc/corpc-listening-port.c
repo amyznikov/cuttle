@@ -44,7 +44,6 @@ bool corpc_listening_port_init(struct corpc_listening_port * cp, const struct co
 {
   if ( co_ssl_listening_port_init(&cp->base, tmpsslopts(opts)) ) {
     cp->services = opts->services;
-    cp->nb_services = opts->nb_services;
     return true;
   }
   return false;
@@ -54,7 +53,6 @@ void corpc_listening_port_cleanup(struct corpc_listening_port * cp)
 {
   co_ssl_listening_port_cleanup(&cp->base);
   cp->services = 0;
-  cp->nb_services = 0;
 }
 
 struct corpc_listening_port * corpc_listening_port_new(const struct corpc_listening_port_opts * opts)
@@ -62,7 +60,6 @@ struct corpc_listening_port * corpc_listening_port_new(const struct corpc_listen
   corpc_listening_port * clp = NULL;
 
   if ( (clp = (corpc_listening_port *) co_ssl_listening_port_new(tmpsslopts(opts))) ) {
-    clp->nb_services = opts->nb_services;
     clp->services = opts->services;
     clp->onaccepted = opts->onaccepted;
     clp->ondisconnected = opts->ondisconnected;

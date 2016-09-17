@@ -8,7 +8,7 @@
 
 SHELL = /bin/bash
 
-TARGET = server
+TARGET = callback-client
 
 all: $(TARGET)
 
@@ -21,7 +21,7 @@ bindir  = $(prefix)/bin
 incdir  = $(prefix)/include
 libdir  = $(prefix)/lib
 
-INCLUDES+= -I. -I$(CURDIR)/../../../include
+INCLUDES+= -I. -I$(CURDIR)/../../../../include
 SOURCES = $(wildcard *.c ../proto/*.c)
 HEADERS = $(wildcard *.h ../proto/*.h)
 MODULES = $(foreach s,$(SOURCES),$(addsuffix .o,$(basename $(s))))
@@ -32,7 +32,7 @@ CPPFLAGS=$(DEFINES) $(INCLUDES)
 
 # C Compiler and flags
 CC = $(cross)gcc
-CFLAGS= -Wall -Wextra -O3 -g0
+CFLAGS= -Wall -Wextra -O3 -g3
 
 # Loader Flags And Libraries
 LD=$(CC)
@@ -41,9 +41,9 @@ LDFLAGS = $(CFLAGS)
 # STRIP = $(cross)strip --strip-all
 STRIP = @echo "don't strip "
 
-LIBCUTTLE=../../../libcuttle.a
+LIBCUTTLE=../../../../libcuttle.a
 
-LDLIBS += $(LIBCUTTLE) -L/usr/local/lib /usr/local/lib/libpcl.a -lssl -lcrypto -lpthread
+LDLIBS += $(LIBCUTTLE) /usr/local/lib/libpcl.a -L/usr/local/lib -lssl -lcrypto -lpthread
 
 
 #########################################
@@ -51,7 +51,7 @@ LDLIBS += $(LIBCUTTLE) -L/usr/local/lib /usr/local/lib/libpcl.a -lssl -lcrypto -
 
 $(MODULES): $(HEADERS) Makefile
 $(TARGET) : $(MODULES) $(LIBCUTTLE) Makefile
-	$(LD) $(LDFLAGS) $(MODULES) $(LDLIBS) -o $@
+	$(LD) $(LDFLAGS)  $(MODULES) $(LDLIBS) -o $@
 
 clean:
 	$(RM) $(MODULES)

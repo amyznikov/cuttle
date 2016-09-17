@@ -226,6 +226,38 @@ uint32_t cf_get_loglevel(void)
   return logmask;
 }
 
+static char pric(int pri)
+{
+  char ch;
+
+  switch ( pri ) {
+    case CF_LOG_FATAL :
+      ch = 'F';
+    break;
+    case CF_LOG_CRITICAL :
+      ch = 'C';
+    break;
+    case CF_LOG_ERROR :
+      ch = 'E';
+    break;
+    case CF_LOG_WARNING :
+      ch = 'W';
+    break;
+    case CF_LOG_NOTICE :
+      ch = 'N';
+    break;
+    case CF_LOG_INFO :
+      ch = 'I';
+    break;
+    case CF_LOG_DEBUG :
+      ch = 'D';
+    break;
+    default :
+      ch = 'U';
+    break;
+  }
+  return ch;
+}
 
 static void do_plogv(int pri, const char * func, int line, const char * format, va_list arglist)
 {
@@ -238,7 +270,7 @@ static void do_plogv(int pri, const char * func, int line, const char * format, 
 
 #else
     plogbegin(pri & 0x07);
-    fprintf(fplog, "[%6d][%s] %-28s(): %4d :", gettid(), ctime_string(), func, line);
+    fprintf(fplog, "|%c|%6d|%s| %-28s(): %4d :", pric(pri), gettid(), ctime_string(), func, line);
     vfprintf(fplog, format, arglist);
     fputc('\n',fplog);
     dump_ssl_errors();
