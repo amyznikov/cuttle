@@ -33,18 +33,18 @@ uint32_t co_io_wait(int so, uint32_t events, int msec);
 
 
 typedef
-struct co_thread_lock_t
-  co_thread_lock_t;
+struct co_thread_lock_s
+  * co_thread_lock_t;
 
 #define CO_THREAD_LOCK_INITIALIZER  NULL
 
-bool co_thread_lock_init(co_thread_lock_t ** wait);
-void co_thread_lock_destroy(co_thread_lock_t ** wait);
-bool co_thread_lock(co_thread_lock_t ** wait);
-bool co_thread_unlock(co_thread_lock_t ** wait);
-int  co_thread_signal(co_thread_lock_t ** wait);
-int  co_thread_broadcast(co_thread_lock_t ** wait);
-int  co_thread_wait(co_thread_lock_t ** wait, int tmout);
+bool co_thread_lock_init(co_thread_lock_t * wait);
+void co_thread_lock_destroy(co_thread_lock_t * wait);
+bool co_thread_lock(co_thread_lock_t * wait);
+bool co_thread_unlock(co_thread_lock_t * wait);
+int  co_thread_signal(co_thread_lock_t * wait);
+int  co_thread_broadcast(co_thread_lock_t * wait);
+int  co_thread_wait(co_thread_lock_t * wait, int tmout);
 
 ////////////////////////////////////////////////////////////////
 

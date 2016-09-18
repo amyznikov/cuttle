@@ -67,10 +67,12 @@ function gencert() {
 		-in ${keyname}.csr \
 		-CA ${rootca} \
 		-CAkey ${rootcakey} \
-		-CAcreateserial \
+		-set_serial 125 \
 		-out ${certname} \
 		-days 365 \
 		-sha256
+
+#		-CAcreateserial 
 }
 
 

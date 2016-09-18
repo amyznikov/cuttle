@@ -80,9 +80,8 @@ struct corpc_channel_opts {
   int connect_tmout_ms;
   SSL_CTX * ssl_ctx;
   const struct corpc_service ** services;
-  void (*onstatechanged)(corpc_channel * channel,
-      enum corpc_channel_state,
-      int reason);
+  bool (*onconnect)(const corpc_channel * channel);
+  void (*onstatechanged)(corpc_channel * channel, enum corpc_channel_state, int reason);
 } corpc_channel_opts;
 
 

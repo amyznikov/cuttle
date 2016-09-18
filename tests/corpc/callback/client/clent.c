@@ -10,6 +10,7 @@
 #include <cuttle/debug.h>
 #include <cuttle/cothread/scheduler.h>
 #include <cuttle/ssl/init-ssl.h>
+#include <cuttle/ssl/x509.h>
 
 #include "../proto/smaster.h"
 
@@ -20,7 +21,7 @@ static bool event_receiver_running = false;
 static bool event_receiver_finished = false;
 static bool client_main_finished = false;
 
-static co_thread_lock_t * thread_lock = CO_THREAD_LOCK_INITIALIZER;
+static co_thread_lock_t thread_lock = CO_THREAD_LOCK_INITIALIZER;
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -130,6 +131,56 @@ static char ClientKey[PATH_MAX];
 static SSL_CTX * g_ssl_ctx;
 
 
+static void cf_openssl_free_string(char ** buf) {
+  if ( buf && *buf ) {
+    OPENSSL_free(*buf);
+    *buf = NULL;
+  }
+}
+
+static bool onconnect(const corpc_channel * channel)
+{
+  const SSL * ssl = NULL;
+  X509 * cert = NULL;
+  X509_NAME * subj = NULL;
+  char * entry = NULL;
+  long serial;
+
+  if ( !(ssl = corpc_channel_get_ssl(channel)) ) {
+    CF_NOTICE("No ssl");
+    goto end;
+  }
+
+  if ( !(cert = SSL_get_peer_certificate(ssl)) ) {
+    CF_NOTICE("NO PEER CERTIFICATE");
+    goto end;
+  }
+
+  serial = cf_x509_get_serial(cert);
+  CF_NOTICE("serial: %ld", serial);
+
+  if ( !(subj = X509_get_subject_name(cert)) ) {
+    CF_CRITICAL("X509_get_subject_name() fails");
+  }
+  else {
+
+    CF_NOTICE("subj: name=%s", (entry = cf_x509_get_name(subj)));
+    cf_openssl_free_string(&entry);
+
+    CF_NOTICE("subj: commonName=%s", (entry = cf_x509_get_common_name(subj)));
+    cf_openssl_free_string(&entry);
+
+    CF_NOTICE("subj: country=%s", (entry = cf_x509_get_country(subj)));
+    cf_openssl_free_string(&entry);
+  }
+
+end:
+
+  X509_free(cert);
+
+  return true;
+}
+
 static void client_main(void * arg )
 {
   (void) arg;
@@ -144,7 +195,7 @@ static void client_main(void * arg )
         .connect_port = 6008,
         .services = client_services,
         .ssl_ctx = g_ssl_ctx,
-        .onstatechanged = NULL,
+        .onconnect = onconnect,
       });
 
   if ( !channel ) {

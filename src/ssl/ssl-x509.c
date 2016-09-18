@@ -17,10 +17,11 @@
 #include <strings.h>
 
 
-static bool cf_x509_add_txt_entry(X509_NAME * name, const char * field, const char * value)
-{
-  return value ? X509_NAME_add_entry_by_txt(name, field, MBSTRING_ASC, (const uint8_t*) value, -1, -1, 0) : true;
-}
+//static bool cf_x509_add_txt_entry(X509_NAME * name, const char * field, const char * value)
+//{
+//  return value ? X509_NAME_add_entry_by_txt(name, field, MBSTRING_UTF8, (const uint8_t*) value, -1, -1, 0) : true;
+//}
+
 
 // SN_subject_alt_name
 static bool cf_x509_add_ext(X509 * x, X509 * issuer, X509 * subj,  int nid, const char * value)
@@ -162,40 +163,68 @@ X509 * cf_x509_new(EVP_PKEY ** ppk, const cf_x509_create_args * args)
     goto end;
   }
 
-  if ( !cf_x509_add_txt_entry(name, "C", args->subj.country) ) {
-    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_txt_entry('C') fails");
+  if ( args->subj.title && !cf_x509_add_text_entry(name, NID_title, args->subj.title) ) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_text_entry(NID_title) fails");
     goto end;
   }
 
-  if ( !cf_x509_add_txt_entry(name, "ST", args->subj.state) ) {
-    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_txt_entry('ST') fails");
+  if ( args->subj.name && !cf_x509_add_text_entry(name, NID_name, args->subj.name) ) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_text_entry(NID_name) fails");
     goto end;
   }
 
-  if ( !cf_x509_add_txt_entry(name, "L", args->subj.city) ) {
-    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_txt_entry('L') fails");
+  if ( args->subj.common_name && !cf_x509_add_text_entry(name, NID_commonName, args->subj.common_name) ) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_text_entry(NID_commonName) fails");
     goto end;
   }
 
-  if ( !cf_x509_add_txt_entry(name, "O", args->subj.company) ) {
-    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_txt_entry('O') fails");
+  if ( args->subj.altname && !cf_x509_add_text_entry(name, NID_subject_alt_name, args->subj.altname) ) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_text_entry(NID_subject_alt_name) fails");
     goto end;
   }
 
-  if ( !cf_x509_add_txt_entry(name, "OU", args->subj.department) ) {
-    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_txt_entry('OU') fails");
+  if ( args->subj.description && !cf_x509_add_text_entry(name, NID_description, args->subj.domain) ) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_text_entry(NID_description) fails");
     goto end;
   }
 
-  if ( !cf_x509_add_txt_entry(name, "CN", args->subj.common_name) ) {
-    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_txt_entry('CN') fails");
+  if ( args->subj.country && !cf_x509_add_text_entry(name, NID_countryName, args->subj.country) ) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_text_entry(NID_countryName) fails");
     goto end;
   }
 
-  if ( !cf_x509_add_txt_entry(name, LN_pkcs9_emailAddress, args->subj.email) ) {
-    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_txt_entry('Email') fails");
+  if ( args->subj.state && !cf_x509_add_text_entry(name, NID_stateOrProvinceName, args->subj.state) ) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_text_entry(NID_stateOrProvinceName) fails");
     goto end;
   }
+
+  if ( args->subj.city && !cf_x509_add_text_entry(name, NID_localityName, args->subj.city) ) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_text_entry(NID_localityName) fails");
+    goto end;
+  }
+
+  if ( args->subj.company && !cf_x509_add_text_entry(name, NID_organizationName, args->subj.company) ) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_text_entry(NID_organizationName) fails");
+    goto end;
+  }
+
+  if ( args->subj.department && !cf_x509_add_text_entry(name, NID_organizationalUnitName, args->subj.department) ) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_text_entry(NID_organizationalUnitName) fails");
+    goto end;
+  }
+
+  if ( args->subj.email && !cf_x509_add_text_entry(name, NID_pkcs9_emailAddress, args->subj.email) ) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_text_entry(NID_pkcs9_emailAddress) fails");
+    goto end;
+  }
+
+  if ( args->subj.domain && !cf_x509_add_text_entry(name, NID_Domain, args->subj.domain) ) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_x509_add_text_entry(NID_Domain) fails");
+    goto end;
+  }
+
+
+
 
 
   if ( !args->ca.cert ) {
@@ -391,4 +420,109 @@ end:
 
   return x;
 }
+
+
+long cf_x509_get_serial(const X509 * x)
+{
+  return ASN1_INTEGER_get(X509_get_serialNumber((X509 *) x));
+}
+
+bool cf_x509_set_serial(X509 * x, long serial)
+{
+  if ( ASN1_INTEGER_set(X509_get_serialNumber(x),serial) != 1 ) {
+    errno = ENOMEM;
+    return false;
+  }
+  return true;
+}
+
+
+char * cf_x509_get_text_entry(const X509_NAME * name, int nid)
+{
+  const ASN1_STRING * data;
+  char * value = NULL;
+  int i;
+
+  if ( !name || (i = X509_NAME_get_index_by_NID((X509_NAME *)name, nid, -1)) < 0 ) {
+    errno = ENOENT;
+  }
+  else if ( !(data = X509_NAME_ENTRY_get_data(X509_NAME_get_entry((X509_NAME *)name, i))) ) {
+    errno = ENOENT;
+  }
+  else if ( (value = OPENSSL_malloc(data->length)) ) {
+    memcpy(value, data->data, data->length);
+    value[data->length] = 0;
+  }
+
+  return value;
+}
+
+char * cf_x509_get_name(const X509_NAME * name)
+{
+  return cf_x509_get_text_entry(name, NID_name);
+}
+
+char * cf_x509_get_common_name(const X509_NAME * name)
+{
+  return cf_x509_get_text_entry(name, NID_commonName);
+}
+
+char * cf_x509_get_title(const X509_NAME * name)
+{
+  return cf_x509_get_text_entry(name, NID_title);
+}
+
+char * cf_x509_get_altname(const X509_NAME * name)
+{
+  return cf_x509_get_text_entry(name, NID_subject_alt_name);
+}
+
+char * cf_x509_get_description(const X509_NAME * name)
+{
+  return cf_x509_get_text_entry(name, NID_description);
+}
+
+char * cf_x509_get_country(const X509_NAME * name)
+{
+  return cf_x509_get_text_entry(name, NID_countryName);
+}
+
+char * cf_x509_get_state(const X509_NAME * name)
+{
+  return cf_x509_get_text_entry(name, NID_stateOrProvinceName);
+}
+
+char * cf_x509_get_city(const X509_NAME * name)
+{
+  return cf_x509_get_text_entry(name, NID_localityName);
+}
+
+char * cf_x509_get_company(const X509_NAME * name)
+{
+  return cf_x509_get_text_entry(name, NID_organizationName);
+}
+
+char * cf_x509_get_department(const X509_NAME * name)
+{
+  return cf_x509_get_text_entry(name, NID_organizationalUnitName);
+}
+
+char * cf_x509_get_domain(const X509_NAME * name)
+{
+  return cf_x509_get_text_entry(name, NID_Domain);
+}
+
+char * cf_x509_get_email(const X509_NAME * name)
+{
+  return cf_x509_get_text_entry(name, NID_pkcs9_emailAddress);
+}
+
+
+
+
+bool cf_x509_add_text_entry(X509_NAME * name, int nid, const char * value)
+{
+  return X509_NAME_add_entry_by_NID(name, nid, MBSTRING_UTF8, (unsigned char * )value, -1, -1, 0) == 1;
+}
+
 

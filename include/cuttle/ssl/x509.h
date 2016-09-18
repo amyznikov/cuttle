@@ -47,12 +47,17 @@ struct cf_x509_create_args {
   } keygen;
 
   struct {
+    const char * title;
+    const char * name;
+    const char * common_name;
+    const char * altname;
+    const char * description;
     const char * country;
     const char * state;
     const char * city;
     const char * company;
     const char * department;
-    const char * common_name;
+    const char * domain;
     const char * email;
   } subj;
 
@@ -91,6 +96,27 @@ X509 * cf_read_pem_x509_fp(FILE * fp);
 
 char * cf_write_pem_x509_str(X509 * x);
 X509 * cf_read_pem_x509_str(const char * s);
+
+
+long cf_x509_get_serial(const X509 * x);
+bool cf_x509_set_serial(X509 * x, long serial);
+
+char * cf_x509_get_text_entry(const X509_NAME * name, int nid);
+char * cf_x509_get_name(const X509_NAME * name);
+char * cf_x509_get_common_name(const X509_NAME * name);
+char * cf_x509_get_title(const X509_NAME * name);
+char * cf_x509_get_altname(const X509_NAME * name);
+char * cf_x509_get_description(const X509_NAME * name);
+char * cf_x509_get_country(const X509_NAME * name);
+char * cf_x509_get_state(const X509_NAME * name);
+char * cf_x509_get_city(const X509_NAME * name);
+char * cf_x509_get_company(const X509_NAME * name);
+char * cf_x509_get_department(const X509_NAME * name);;
+char * cf_x509_get_domain(const X509_NAME * name);
+char * cf_x509_get_email(const X509_NAME * name);
+
+
+bool cf_x509_add_text_entry(X509_NAME * name, int nid, const char * value);
 
 
 #ifdef __cplusplus

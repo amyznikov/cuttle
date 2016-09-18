@@ -808,7 +808,7 @@ void co_yield(void)
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-struct co_thread_lock_t {
+struct co_thread_lock_s {
   struct iorq e;
   coroutine_t co;
 };
@@ -827,9 +827,9 @@ static inline void co_thread_global_unlock(void)
   pthread_mutex_unlock(&co_thread_lock_global_mtx);
 }
 
-static co_thread_lock_t * co_thread_check(co_thread_lock_t ** objp)
+static struct co_thread_lock_s * co_thread_check(co_thread_lock_t * objp)
 {
-  co_thread_lock_t * obj;
+  struct co_thread_lock_s * obj;
 
   if ( !(obj = *objp) ) {
     CF_FATAL("BUG: obj = NULL");
@@ -848,16 +848,16 @@ static co_thread_lock_t * co_thread_check(co_thread_lock_t ** objp)
   return obj;
 }
 
-static co_thread_lock_t * co_thread_lock_init_internal(co_thread_lock_t ** objp, bool lock)
+static struct co_thread_lock_s * co_thread_lock_init_internal(co_thread_lock_t *objp, bool lock)
 {
-  co_thread_lock_t * obj = NULL;
+  struct co_thread_lock_s * obj = NULL;
   bool fok = false;
 
   if ( lock ) {
     co_thread_global_lock();
   }
 
-  if ( !(obj = calloc(1, sizeof(struct co_thread_lock_t))) ) {
+  if ( !(obj = calloc(1, sizeof(struct co_thread_lock_s))) ) {
     goto end;
   }
 
@@ -895,12 +895,12 @@ end :
   return obj;
 }
 
-bool co_thread_lock_init(co_thread_lock_t ** objp)
+bool co_thread_lock_init(co_thread_lock_t * objp)
 {
   return co_thread_lock_init_internal(objp, true) != NULL;
 }
 
-void co_thread_lock_destroy(co_thread_lock_t ** objp)
+void co_thread_lock_destroy(co_thread_lock_t *objp)
 {
   co_thread_global_lock();
 
@@ -917,7 +917,7 @@ void co_thread_lock_destroy(co_thread_lock_t ** objp)
 }
 
 // must be globally locked
-static void co_thread_lock_internal(co_thread_lock_t * obj)
+static void co_thread_lock_internal(struct co_thread_lock_s * obj)
 {
   struct cclist_node * node =
       add_waiter(current_core,
@@ -937,27 +937,26 @@ static void co_thread_lock_internal(co_thread_lock_t * obj)
   while ( obj->co ) {
     co_thread_global_unlock();
 
-      co_call(current_core->main);
+    co_call(current_core->main);
 
     co_thread_global_lock();
   }
   obj->co = co_current();
-
 
   epoll_dequeue(&obj->e, cclist_peek(node));
   remove_waiter(current_core, node);
 }
 
 // must be globally locked
-static void co_thread_unlock_internal(co_thread_lock_t * obj)
+static void co_thread_unlock_internal(struct co_thread_lock_s * obj)
 {
   obj->co = NULL;
   eventfd_write(obj->e.so, 1);
 }
 
-bool co_thread_lock(co_thread_lock_t ** objp)
+bool co_thread_lock(co_thread_lock_t * objp)
 {
-  co_thread_lock_t * obj;
+  struct co_thread_lock_s * obj;
 
   co_thread_global_lock();
   if ( (obj = *objp) || (obj = co_thread_lock_init_internal(objp, false)) ) {
@@ -968,9 +967,9 @@ bool co_thread_lock(co_thread_lock_t ** objp)
   return obj != NULL;
 }
 
-bool co_thread_unlock(co_thread_lock_t ** objp)
+bool co_thread_unlock(co_thread_lock_t * objp)
 {
-  struct co_thread_lock_t * obj;
+  struct co_thread_lock_s * obj;
 
   co_thread_global_lock();
 
@@ -987,9 +986,9 @@ bool co_thread_unlock(co_thread_lock_t ** objp)
   return obj != NULL;
 }
 
-static int co_thread_signal_internal(co_thread_lock_t ** objp, bool bc)
+static int co_thread_signal_internal(co_thread_lock_t * objp, bool bc)
 {
-  co_thread_lock_t * obj;
+  struct co_thread_lock_s * obj;
   int nb_signalled = -1;
 
   co_thread_global_lock();
@@ -1024,19 +1023,19 @@ static int co_thread_signal_internal(co_thread_lock_t ** objp, bool bc)
   return nb_signalled;
 }
 
-int co_thread_signal(co_thread_lock_t ** objp)
+int co_thread_signal(co_thread_lock_t * objp)
 {
   return co_thread_signal_internal(objp, false);
 }
 
-int co_thread_broadcast(co_thread_lock_t ** objp)
+int co_thread_broadcast(co_thread_lock_t * objp)
 {
   return co_thread_signal_internal(objp, true);
 }
 
-int co_thread_wait(co_thread_lock_t ** objp, int tmo)
+int co_thread_wait(co_thread_lock_t * objp, int tmo)
 {
-  struct co_thread_lock_t * obj;
+  struct co_thread_lock_s * obj;
   struct cclist_node * node;
   struct io_waiter * iow;
   int status = -1;

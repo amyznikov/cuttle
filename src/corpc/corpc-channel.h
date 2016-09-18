@@ -60,6 +60,7 @@ struct corpc_channel {
       enum corpc_channel_state,
       int reason);
 
+  bool (*onconnect)(const corpc_channel * channel);
   bool (*onaccept)(const corpc_channel * channel);
   void (*onaccepted)(corpc_channel * channel);
 

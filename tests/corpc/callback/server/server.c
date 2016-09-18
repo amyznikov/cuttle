@@ -11,6 +11,7 @@
 #include <cuttle/debug.h>
 #include <cuttle/sockopt.h>
 #include <cuttle/ssl/init-ssl.h>
+#include <cuttle/ssl/x509.h>
 #include <cuttle/corpc/corpc-server.h>
 
 #include "../proto/smaster.h"
@@ -79,18 +80,82 @@ end:
 }
 
 
+static void cf_openssl_free_string(char ** buf) {
+  if ( buf && *buf ) {
+    OPENSSL_free(*buf);
+    *buf = NULL;
+  }
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 static bool on_accept_client_connection(const corpc_channel * channel)
 {
   const SSL * ssl = NULL;
+  X509 * cert = NULL;
+  X509_NAME * subj = NULL;
+  X509_NAME * issuer = NULL;
+  char * subjstring = NULL;
+  char * subjName = NULL;
+  char * text = NULL;
 
   CF_NOTICE("ACCEPTED NEW CLIENT CONNECTION");
 
-  ssl = corpc_channel_get_ssl(channel);
-  CF_NOTICE("SSL=%p", ssl);
+  if ( !(ssl = corpc_channel_get_ssl(channel)) ) {
+    CF_NOTICE("CONNECTION IS NOT SECURED: SSL=NULL");
+    goto end;
+  }
+
+  if ( !(cert = SSL_get_peer_certificate(ssl)) ) {
+    CF_NOTICE("Client DOES NOT PROVIDE X509 cerificate");
+    goto end;
+  }
+
+  CF_NOTICE("cert serial = %ld", cf_x509_get_serial(cert));
+
+  if ( !(subj = X509_get_subject_name(cert))) {
+    CF_NOTICE("X509_get_subject_name() returns NULL");
+  }
+  else {
+
+    CF_NOTICE("subj:name = %s", (text = cf_x509_get_text_entry(subj, NID_name)));
+    cf_openssl_free_string(&text);
+
+    CF_NOTICE("subj:commonName = %s", (text = cf_x509_get_text_entry(subj, NID_commonName)));
+    cf_openssl_free_string(&text);
+
+    CF_NOTICE("subj:localityName = %s", (text = cf_x509_get_text_entry(subj, NID_localityName)));
+    cf_openssl_free_string(&text);
+
+    CF_NOTICE("subj:Domain = %s", (text = cf_x509_get_text_entry(subj, NID_Domain)));
+    cf_openssl_free_string(&text);
+  }
 
 
-  return true;
+  if ( !(issuer = X509_get_issuer_name(cert)) ) {
+    CF_NOTICE("NO CERT ISSUER");
+  }
+  else {
+
+    CF_NOTICE("issuer:name = %s", (text = cf_x509_get_text_entry(issuer, NID_name)));
+    cf_openssl_free_string(&text);
+
+    CF_NOTICE("issuer:commonName = %s", (text = cf_x509_get_text_entry(issuer, NID_commonName)));
+    cf_openssl_free_string(&text);
+
+    CF_NOTICE("issuer:localityName = %s", (text = cf_x509_get_text_entry(issuer, NID_localityName)));
+    cf_openssl_free_string(&text);
+
+    CF_NOTICE("issuer:Domain = %s", (text = cf_x509_get_text_entry(issuer, NID_Domain)));
+    cf_openssl_free_string(&text);
+  }
+
+end:
+
+  OPENSSL_free(subjName);
+  OPENSSL_free(subjstring);
+  X509_free(cert);
+
+  return true; // keep connection active anyway
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
