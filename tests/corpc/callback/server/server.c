@@ -47,7 +47,7 @@ static void send_timer_events_to_client(corpc_channel * channel)
   st = corpc_open_stream(channel,
       &(struct corpc_open_stream_opts ) {
             .service = k_smaster_events_service_name,
-            .method = k_smaster_events_ontimer_methd_name,
+            .method = k_smaster_events_ontimer_method_name,
           });
 
   if ( !st ) {
@@ -191,13 +191,39 @@ static void receive_timer_events_from_client(corpc_stream * st)
   CF_DEBUG("LEAVE");
 }
 
+static void ping_pong_tester(corpc_stream * st)
+{
+  sm_timer_event e;
+  CF_DEBUG("ENTER");
+
+  init_sm_timer_event(&e, NULL);
+
+  while ( corpc_stream_read_sm_timer_event(st, &e))  {
+    CF_DEBUG("%s", e.msg);
+    cleanup_sm_timer_event(&e);
+
+    e.msg = strdup("PONG");
+    if ( !corpc_stream_write_sm_timer_event(st, &e)) {
+      break;
+    }
+    cleanup_sm_timer_event(&e);
+  }
+
+  cleanup_sm_timer_event(&e);
+
+  CF_DEBUG("LEAVE");
+}
+
 static corpc_service client_event_listener_service = {
   .name = k_smaster_events_service_name,
   .methods = {
-    { .name = k_smaster_events_ontimer_methd_name, .proc = receive_timer_events_from_client },
+    { .name = k_smaster_events_ontimer_method_name, .proc = receive_timer_events_from_client },
+    { .name = k_smaster_ping_pong_method_name,  .proc =  ping_pong_tester},
     { .name = NULL },
   }
 };
+
+
 
 
 static const corpc_service * server_services[] = {

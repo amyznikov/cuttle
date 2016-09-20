@@ -13,7 +13,7 @@
 #include <cuttle/debug.h>
 #include <cuttle/cothread/scheduler.h>
 
-static co_thread_lock_t * mtx;
+static co_thread_lock_t mtx;
 
 static int some_data;
 

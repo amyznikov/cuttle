@@ -40,7 +40,7 @@ struct ccfifo {
 
 static inline bool ccfifo_init(ccfifo * q, size_t capacity, size_t item_size)
 {
-  if ( (q->items = calloc(capacity, item_size)) ) {
+  if ( (q->items = malloc(capacity * item_size)) ) {
     q->capacity = capacity;
     q->item_size = item_size;
     q->size = q->first = q->last = 0;

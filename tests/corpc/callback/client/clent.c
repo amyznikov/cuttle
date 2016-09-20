@@ -59,7 +59,7 @@ static void send_timer_events_to_server(void * arg)
   st = corpc_open_stream(channel,
       &(struct corpc_open_stream_opts ) {
             .service = k_smaster_events_service_name,
-            .method = k_smaster_events_ontimer_methd_name,
+            .method = k_smaster_events_ontimer_method_name,
           });
 
   if ( !st ) {
@@ -111,7 +111,7 @@ static void receive_timer_events_from_server(corpc_stream * st)
 static const corpc_service server_event_listener_service = {
   .name = k_smaster_events_service_name,
   .methods = {
-    { .name = k_smaster_events_ontimer_methd_name, .proc = receive_timer_events_from_server },
+    { .name = k_smaster_events_ontimer_method_name, .proc = receive_timer_events_from_server },
     { .name = NULL },
   }
 };
@@ -216,6 +216,15 @@ static void client_main(void * arg )
     goto end;
   }
 
+
+  co_sleep(5000);
+
+  CF_DEBUG("C corpc_channel_close()");
+  corpc_channel_close(&channel);
+  CF_DEBUG("R corpc_channel_close()");
+
+
+
   CF_DEBUG("C wait_event(&event_sender_finished)");
   wait_event(&event_sender_finished);
   CF_DEBUG("R wait_event(&event_sender_finished)");
@@ -230,7 +239,7 @@ end:
 
 
   CF_DEBUG("C corpc_channel_relase()");
-  corpc_channel_close(channel);
+  corpc_channel_close(&channel);
   CF_DEBUG("R corpc_channel_relase()");
 
   set_event(&client_main_finished);

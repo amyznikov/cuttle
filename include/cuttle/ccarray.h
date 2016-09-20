@@ -39,7 +39,7 @@ typedef int (*cmpfunc_t)(const void * v1, const void * v2);
 static inline ccarray_t * ccarray_init(ccarray_t * c, size_t capacity, size_t item_size)
 {
   if ( c ) {
-    if ( !(c->items = calloc(capacity, item_size)) ) {
+    if ( !(c->items = malloc(capacity * item_size)) ) {
       c = NULL;
     }
     else {
@@ -93,7 +93,7 @@ static inline size_t ccarray_resize(ccarray_t * c, size_t size)
   const size_t old_size = c->size;
 
   if ( ccarray_realloc(c, size) == size && size > old_size ) {
-    memset((uint8_t*) c->items + old_size * c->item_size, 0, (size - old_size) * c->item_size);
+    //memset((uint8_t*) c->items + old_size * c->item_size, 0, (size - old_size) * c->item_size);
     c->size = size;
   }
 

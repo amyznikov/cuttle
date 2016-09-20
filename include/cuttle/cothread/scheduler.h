@@ -51,21 +51,25 @@ int  co_thread_wait(co_thread_lock_t * wait, int tmout);
 
 ////////////////////////////////////////////////////////////////
 
-typedef struct co_socket
+typedef
+struct co_socket
   co_socket;
 
+co_socket * co_socket_init_new(int so); // takes ownership
+co_socket * co_socket_create_new(int af, int sock_type, int proto);
+co_socket * co_socket_create_listening_new(const struct sockaddr * addrs, int sock_type, int proto);
+co_socket * co_socket_accept_new(co_socket * listenning, struct sockaddr * addrs, socklen_t * addrslen);
+co_socket * co_socket_connect_new(const struct sockaddr *address, int sock_type, int proto, int tmo_ms);
 
-co_socket * co_socket_new(int af, int sock_type, int proto);
-co_socket * co_socket_attach(int so); // takes ownership
-co_socket * co_socket_attach_and_connect(int so, const struct sockaddr *address, socklen_t addrslen, int tmo_ms);
-co_socket * co_socket_accept_new(co_socket * cc, struct sockaddr * addrs, socklen_t * addrslen);
+void co_socket_close(co_socket * cc, bool abort_conn);
+void co_socket_destroy(co_socket ** cc, bool abort_conn);
 
-bool co_socket_connect(co_socket * cc, const struct sockaddr *address, socklen_t addrslen, int tmo_ms);
-void co_socket_close(co_socket ** cc, bool abort_conn);
+
 int  co_socket_fd(const co_socket * cc);
 bool co_socket_set_send_tmout(co_socket * cc, int msec);
 bool co_socket_set_recv_tmout(co_socket * cc, int msec);
 bool co_socket_set_sndrcv_tmouts(co_socket * cc, int snd_tmout_msec, int rcv_tmout_msec);
+bool co_socket_connect(co_socket * cc, const struct sockaddr *address, int tmo_ms);
 ssize_t co_socket_send(co_socket * cc, const void * buf, size_t size, int flags);
 ssize_t co_socket_recv(co_socket * cc, void * buf, size_t size, int flags);
 

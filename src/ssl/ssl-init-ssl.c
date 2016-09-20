@@ -6,6 +6,8 @@
  *      Author: amyznikov
  *
  *  https://wiki.openssl.org/index.php/Libcrypto_API
+ *
+ *  https://github.com/iSECPartners/ssl-conservatory
  */
 #define _GNU_SOURCE
 

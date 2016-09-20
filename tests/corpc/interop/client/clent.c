@@ -165,10 +165,10 @@ static void client_main(void * arg )
     goto end;
   }
 
-//  if ( !authenticate(channel, "iam", "password") ) {
-//    CF_FATAL("authenticate() fails");
-//    goto end;
-//  }
+  if ( !authenticate(channel, "iam", "password") ) {
+    CF_FATAL("authenticate() fails");
+    goto end;
+  }
 
   if ( !get_mail(channel) ) {
     CF_FATAL("corpc_open_channel() fails");
@@ -178,8 +178,9 @@ static void client_main(void * arg )
 
 end:
 
+
   CF_DEBUG("C corpc_channel_relase()");
-  corpc_channel_close(channel);
+  corpc_channel_close(&channel);
 
   CF_DEBUG("Finished");
 }

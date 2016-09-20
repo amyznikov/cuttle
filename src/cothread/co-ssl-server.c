@@ -140,7 +140,7 @@ bool co_ssl_server_start(co_ssl_server * ssrv)
 
     sslp = ccarray_ppeek(&ssrv->ssl_ports, i);
 
-    if ( !(sslp->listening_sock = co_ssl_listen(&sslp->listen_address.sa, sslp->sock_type, sslp->proto)) ) {
+    if ( !(sslp->listening_sock = co_ssl_socket_listen_new(&sslp->listen_address.sa, sslp->sock_type, sslp->proto)) ) {
       CF_FATAL("co_ssl_listen() fails");
       fok = false;
       break;
@@ -155,7 +155,7 @@ bool co_ssl_server_start(co_ssl_server * ssrv)
 
     if ( !co_ssl_listening_port_start_listen(sslp) ) {
       CF_FATAL("co_ssl_listening_port_start_listen() fails: %s", strerror(errno));
-      co_socket_close(&sslp->listening_sock, false);
+      co_socket_destroy(&sslp->listening_sock, false);
       fok = false;
       break;
     }

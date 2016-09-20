@@ -18,26 +18,18 @@
 static void co_ssl_listening_thread(void * arg)
 {
   co_ssl_listening_port * sslp = arg;
-
-  co_socket * listening_sock = sslp->listening_sock;
-  co_socket * accepted_sock = NULL;
-  co_ssl_socket * ssl_sock = NULL;
+  co_ssl_socket * accepted_sock = NULL;
 
   CF_DEBUG("Started");
 
-
   while ( 42 ) {
 
-    if ( !(accepted_sock = co_socket_accept_new(listening_sock, NULL, 0)) ) {
-      CF_CRITICAL("co_ssl_socket_accept() fails: %s", strerror(errno));
+    if ( !(accepted_sock = co_ssl_socket_accept_new(sslp->listening_sock, sslp->ssl_ctx, NULL, 0)) ) {
+      CF_CRITICAL("co_ssl_socket_accept() fails");
     }
-    else if ( !(ssl_sock = co_ssl_socket_attach(accepted_sock, sslp->ssl_ctx)) ) {
-      CF_CRITICAL("co_ssl_socket_attach() fails: %s,  deleting co_socket", strerror(errno));
-      co_socket_close(&accepted_sock, true);
-    }
-    else if ( !sslp->onaccept(sslp, ssl_sock) ) {
+    else if ( !sslp->onaccept(sslp, accepted_sock) ) {
       CF_CRITICAL("onaccept() fails: deletig ssl_socket");
-      co_ssl_socket_close(&ssl_sock, true);
+      co_ssl_socket_destroy(&accepted_sock, true);
     }
     else {
       CF_INFO("ACCEPTED");

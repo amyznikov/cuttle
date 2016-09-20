@@ -78,7 +78,7 @@ static void client_thread(void * arg)
 end:
 
   CF_DEBUG("C co_ssl_socket_close(&ssl_sock, false)");
-  co_ssl_socket_close(&ssl_sock, false);
+  co_ssl_socket_destroy(&ssl_sock, false);
   CF_DEBUG("R co_ssl_socket_close(&ssl_sock, false)");
 
   CF_DEBUG("Finished");

@@ -17,7 +17,8 @@ extern "C" {
 #endif
 
 #define k_smaster_events_service_name "smaster.events"
-#define k_smaster_events_ontimer_methd_name "ontimer"
+#define k_smaster_events_ontimer_method_name "ontimer"
+#define k_smaster_ping_pong_method_name   "ping-pong"
 
 
 typedef

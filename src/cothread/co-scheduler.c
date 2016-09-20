@@ -14,25 +14,24 @@
 #include <sys/socket.h>
 #include <sys/eventfd.h>
 #include <sys/syscall.h>
-#include <pcl.h>
+#include <sys/mman.h>
 #include <stdio.h>
 
 #include <cuttle/debug.h>
 #include <cuttle/sockopt.h>
 #include <cuttle/time.h>
 #include <cuttle/cclist.h>
-#include <cuttle/cothread/scheduler.h>
-
-#include "pthread_wait.h"
+#include "co-scheduler.h"
 
 
 
-#define UNMASKED_EVENTS (EPOLLERR|EPOLLHUP|EPOLLRDHUP)
-#define CREQ_LISTENER_STACK_SIZE   (128*1024)
+#define UNMASKED_EVENTS             (EPOLLERR|EPOLLHUP|EPOLLRDHUP)
+#define CREQ_LISTENER_STACK_SIZE    (128*1024)
+#define DEFAULT_THREAD_STACK_SIZE   (1024*1024)
 
-#define MTX_WAKEUP_WAITING  0x01
-#define MTX_WAKEUP_EVENT    0x02
-#define CO_YIELD            0x04
+#define MTX_WAKEUP_WAITING          0x01
+#define MTX_WAKEUP_EVENT            0x02
+#define CO_YIELD                    0x04
 
 
 
@@ -49,26 +48,6 @@ static struct {
   .eso = -1,
 };
 
-struct io_waiter {
-  int64_t tmo;
-  struct io_waiter *prev, *next;
-  coroutine_t co;
-  uint32_t mask;
-  uint32_t events;
-  uint32_t revents;
-  uint32_t flags;
-};
-
-enum {
-  iowait_io,
-  iowait_eventfd
-};
-
-struct iorq {
-  struct io_waiter *head, *tail;
-  int so;
-  int type;
-};
 
 
 
@@ -280,21 +259,21 @@ struct co_scheduler_context {
 
 
 struct schedule_request {
+
   union {
     struct {
       int (*callback)(void *, uint32_t);
-      void * callback_arg;
-      size_t stack_size;
       uint32_t flags;
       int so;
     } io;
 
     struct {
       void (*func)(void*);
-      void * arg;
-      size_t stack_size;
     } thread;
   };
+
+  size_t stack_size;
+  void * thread_arg;
 
   enum {
     creq_schedule_io = 1,
@@ -405,6 +384,7 @@ static inline int send_schedule_request(struct co_scheduler_context * core, cons
 }
 
 
+
 static void schedule_request_handler(void * arg)
 {
   (void)(arg);
@@ -414,18 +394,25 @@ static void schedule_request_handler(void * arg)
   ssize_t size;
   int32_t status;
 
+
+  //
+
   while ( (size = co_recv(current_core->cs[1], &creq, sizeof(creq), 0)) == (ssize_t) sizeof(creq) ) {
 
     errno = 0;
 
-    if ( creq.req == creq_start_cothread ) {
+    if ( !creq.stack_size ) {
+      creq.stack_size = DEFAULT_THREAD_STACK_SIZE;
+    }
 
+    if ( creq.req == creq_start_cothread ) {
 
       if ( ccfifo_is_full(&current_core->queue) ) {
         status = EBUSY;
       }
-      else if ( !(co = co_create(creq.thread.func, creq.thread.arg, NULL, creq.thread.stack_size)) ) {
+      else if ( !(co = co_create(creq.thread.func, creq.thread_arg, NULL, creq.stack_size)) ) {
         status = errno ? errno : ENOMEM;
+        CF_CRITICAL("co_create() fails: %s", strerror(errno));
       }
       else {
         epoll_listener_lock();
@@ -445,12 +432,12 @@ static void schedule_request_handler(void * arg)
       else if ( !(cb = calloc(1, sizeof(*cb))) ) {
         status = ENOMEM;
       }
-      else if ( !(co = co_create(iocb_handler, cb, NULL, creq.io.stack_size)) ) {
+      else if ( !(co = co_create(iocb_handler, cb, NULL, creq.stack_size)) ) {
         status = errno ? errno : ENOMEM;
       }
       else {
         cb->fn = creq.io.callback;
-        cb->cookie = creq.io.callback_arg;
+        cb->cookie = creq.thread_arg;
         cb->e.so = creq.io.so;
         cb->e.type = iowait_io;
         cb->e.head = cclist_peek(cb->node =
@@ -686,6 +673,23 @@ end:
   return pid;
 }
 
+
+static void * co_stack_alloc(size_t size)
+{
+  void * p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+  if ( !p ) {
+    CF_FATAL("mmap() fails: %s", strerror(errno));
+  }
+  return p;
+}
+
+static void co_stack_free(void * stack, size_t size)
+{
+  if ( munmap(stack, size) != 0 ) {
+    CF_FATAL("munmap() fails: %s", strerror(errno));
+  }
+}
+
 bool co_scheduler_init(int ncpu)
 {
   bool fok = false;
@@ -702,6 +706,7 @@ bool co_scheduler_init(int ncpu)
     goto end;
   }
 
+  co_set_mem_allocator(co_stack_alloc, co_stack_free);
 
   while ( ncpu > 0 && new_pcl_thread() ) {
     --ncpu;
@@ -725,8 +730,8 @@ bool co_schedule(void (*func)(void*), void * arg, size_t stack_size)
       &(struct schedule_request) {
         .req = creq_start_cothread,
         .thread.func = func,
-        .thread.arg = arg,
-        .thread.stack_size = stack_size
+        .thread_arg = arg,
+        .stack_size = stack_size
       });
 
   if ( status ) {
@@ -750,8 +755,8 @@ bool co_schedule_io(int so, uint32_t events, int (*callback)(void * arg, uint32_
         .io.so = so,
         .io.flags = events,
         .io.callback = callback,
-        .io.callback_arg = arg,
-        .io.stack_size = stack_size
+        .thread_arg = arg,
+        .stack_size = stack_size
       });
 
 
@@ -779,7 +784,7 @@ void co_sleep(uint32_t msec)
                 });
 
     if ( !node ) {
-      CF_FATAL("add_waiter() fails");
+      CF_FATAL("add_waiter() fails: %s", strerror(errno));
     }
     else {
       co_call(current_core->main);
@@ -1090,32 +1095,49 @@ int co_thread_wait(co_thread_lock_t * objp, int tmo)
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-
-struct co_socket {
-  struct iorq e;
-  int recvtmo, sendtmo;
-};
-
-co_socket * co_socket_attach(int so)
+bool co_socket_init(co_socket * cc, int so)
 {
-  co_socket * cc = NULL;
-
-  if ( (cc = calloc(1, sizeof(*cc))) ) {
-    cc->e.so = so;
-    cc->e.type = iowait_io;
-    cc->e.head = NULL;
-    cc->recvtmo = cc->sendtmo = -1;
-    if ( !so_set_non_blocking(so, 1) || !epoll_add(&cc->e, EPOLLIN | EPOLLOUT) ) {
-      free(cc), cc = NULL;
-    }
+  cc->e.type = iowait_io;
+  cc->e.tail = cc->e.head = NULL;
+  cc->recvtmo = cc->sendtmo = -1;
+  if ( (cc->e.so = so) != -1 && (!so_set_non_blocking(so, 1) || !epoll_add(&cc->e, EPOLLIN | EPOLLOUT)) ) {
+    cc->e.so = -1;
+    return false;
   }
+  return true;
+}
 
+void co_socket_close(co_socket * cc, bool abort_conn)
+{
+  if ( cc && cc->e.so != -1 ) {
+
+    struct io_waiter * w;
+
+    epoll_listener_lock();
+    so_close(cc->e.so, abort_conn);
+    cc->e.so = -1;
+
+    for ( w = cc->e.head; w; w = w->next ) {
+      w->events |= w->mask;
+    }
+    epoll_listener_signal();
+    epoll_listener_unlock();
+  }
+}
+
+
+co_socket * co_socket_init_new(int so)
+{
+  co_socket * cc;
+  if ( (cc = malloc(sizeof(*cc))) && !co_socket_init(cc, so) ) {
+    free(cc), cc = NULL;
+  }
   return cc;
 }
 
-co_socket * co_socket_new(int af, int sock_type, int proto)
+
+bool co_socket_create(co_socket * cc, int af, int sock_type, int proto)
 {
-  co_socket * cc = NULL;
   int so = -1;
 
   if ( !af ) {
@@ -1130,79 +1152,114 @@ co_socket * co_socket_new(int af, int sock_type, int proto)
     proto = IPPROTO_TCP;
   }
 
-  if ( (so = socket(af, sock_type, proto)) != -1 && !(cc = co_socket_attach(so)) ) {
-    close(so);
+  if ( (so = socket(af, sock_type, proto)) != -1 && !co_socket_init(cc, so) ) {
+    close(so), so = -1;
   }
 
-  return cc;
-}
-
-void co_socket_free(co_socket ** cc)
-{
-  if ( cc && *cc ) {
-    free(*cc);
-    *cc = NULL;
-  }
+  return so != -1;
 }
 
 
-void co_socket_close(co_socket ** cc, bool abort_conn)
-{
-  if ( cc && *cc ) {
-    if ( (*cc)->e.so != -1 ) {
-      epoll_remove((*cc)->e.so);
-      so_close((*cc)->e.so, abort_conn);
-    }
-    co_socket_free(cc);
-  }
-}
-
-co_socket * co_socket_attach_and_connect(int so, const struct sockaddr *address, socklen_t addrslen, int tmo_ms)
+co_socket * co_socket_create_new(int af, int sock_type, int proto)
 {
   co_socket * cc = NULL;
-
-  if ( (cc = co_socket_attach(so)) && !co_socket_connect(cc, address, addrslen, tmo_ms) ) {
-    co_socket_free(&cc);
+  if ( (cc = malloc(sizeof(*cc))) && !co_socket_create(cc, af, sock_type, proto) ) {
+    free(cc), cc = NULL;
   }
   return cc;
 }
 
-bool co_socket_connect(co_socket * cc, const struct sockaddr *address, socklen_t addrslen, int tmo_ms)
+
+bool co_socket_create_listening(co_socket * cc, const struct sockaddr * addrs, int sock_type, int proto)
+{
+  bool fok = false;
+
+  if ( !co_socket_create(cc, addrs->sa_family, sock_type, proto) ) {
+    goto end;
+  }
+
+  so_set_reuse_addrs(cc->e.so, 1);
+
+  if ( bind(cc->e.so, addrs, so_get_addrlen(addrs)) == -1 ) {
+    goto end;
+  }
+
+  if ( listen(cc->e.so, SOMAXCONN) == -1 ) {
+    goto end;
+  }
+
+  fok = true;
+
+end :
+
+  if ( !fok ) {
+    co_socket_close(cc, false);
+  }
+
+  return fok;
+}
+
+co_socket * co_socket_create_listening_new(const struct sockaddr * addrs, int sock_type, int proto)
+{
+  co_socket * cc = NULL;
+  if ( (cc = malloc(sizeof(*cc))) && !co_socket_create_listening(cc, addrs, sock_type, proto) ) {
+    free(cc), cc = NULL;
+  }
+  return cc;
+}
+
+
+void co_socket_destroy(co_socket ** cc, bool abort_conn)
+{
+  if ( cc && *cc ) {
+    co_socket_close(*cc, abort_conn);
+    free(*cc), *cc = NULL;
+  }
+}
+
+
+bool co_socket_connect(co_socket * cc, const struct sockaddr *address, int tmo_ms)
 {
   struct io_waiter * w;
   int status = -1;
 
-  struct cclist_node * node =
-      add_waiter(current_core, &(struct io_waiter ) {
-            .co = co_current(),
-            .tmo = tmo_ms >= 0 ? co_current_time_ms() + tmo_ms : -1,
-            .mask = EPOLLOUT
-          });
-
-  if ( !node ) {
-    CF_FATAL("add_waiter() fails");
+  if ( !cc || cc->e.so == -1 ) {
+    errno = EBADF;
   }
   else {
 
-    epoll_queue(&cc->e, w = cclist_peek(node));
+    struct cclist_node * node =
+        add_waiter(current_core, &(struct io_waiter ) {
+              .co = co_current(),
+              .tmo = tmo_ms >= 0 ? co_current_time_ms() + tmo_ms : -1,
+              .mask = EPOLLOUT
+            });
 
-    errno = 0;
-    if ( (status = connect(cc->e.so, address, addrslen)) == -1 && errno == EINPROGRESS ) {
-      do {
-        co_call(current_core->main);
-      } while ( !(w->revents & (EPOLLOUT | EPOLLERR)) && (w->tmo == -1 || co_current_time_ms() <= w->tmo) );
-
-      if ( !(w->revents & EPOLLERR) ) {
-        status = 0;
-      }
-      else {
-        errno = so_get_error(cc->e.so);
-        status = -1;
-      }
+    if ( !node ) {
+      CF_FATAL("add_waiter() fails");
     }
+    else {
 
-    epoll_dequeue(&cc->e, w);
-    remove_waiter(current_core, node);
+      epoll_queue(&cc->e, w = cclist_peek(node));
+
+      errno = 0;
+      if ( (status = connect(cc->e.so, address, so_get_addrlen(address))) == -1 && errno == EINPROGRESS ) {
+        do {
+          co_call(current_core->main);
+        } while ( !(w->revents & (EPOLLOUT | EPOLLERR)) && (w->tmo == -1 || co_current_time_ms() <= w->tmo) );
+
+        if ( !(w->revents & EPOLLERR) ) {
+          status = 0;
+        }
+        else {
+          errno = so_get_error(cc->e.so);
+          status = -1;
+        }
+      }
+
+      epoll_dequeue(&cc->e, w);
+      remove_waiter(current_core, node);
+    }
   }
 
   return status == 0;
@@ -1253,7 +1310,7 @@ ssize_t co_socket_send(co_socket * cc, const void * buf, size_t buf_size, int fl
   const uint8_t * pb = buf;
   ssize_t size, sent = -1;
 
-  if ( !cc ) {
+  if ( !cc || cc->e.so == -1 ) {
     errno = EBADF;
   }
   else if ( !pb ) {
@@ -1313,7 +1370,7 @@ ssize_t co_socket_recv(co_socket * cc, void * buf, size_t buf_size, int flags)
   struct io_waiter * w;
   ssize_t size = -1;
 
-  if ( !cc ) {
+  if ( !cc || cc->e.so == -1 ) {
     errno = EBADF;
   }
   else if ( !buf ) {
@@ -1336,7 +1393,8 @@ ssize_t co_socket_recv(co_socket * cc, void * buf, size_t buf_size, int flags)
       epoll_queue(&cc->e, w = cclist_peek(node));
 
       size = 0;
-      while ( (size = recv(cc->e.so, buf, buf_size, flags | MSG_DONTWAIT | MSG_NOSIGNAL)) < 0 && errno == EAGAIN ) {
+      while ( cc->e.so != -1 && (size = recv(cc->e.so, buf, buf_size, flags | MSG_DONTWAIT | MSG_NOSIGNAL)) < 0
+          && errno == EAGAIN ) {
         if ( w->tmo != -1 && co_current_time_ms() >= w->tmo ) {
           errno = ETIME;
           break;
@@ -1347,7 +1405,10 @@ ssize_t co_socket_recv(co_socket * cc, void * buf, size_t buf_size, int flags)
       epoll_dequeue(&cc->e, w);
       remove_waiter(current_core, node);
 
-      if ( size == 0 ) {
+      if ( cc->e.so == -1 ) {
+        errno = ECONNABORTED;    // see co_socket_close()
+      }
+      else if ( size == 0 && (errno = so_get_error(cc->e.so)) == 0 ) {
         errno = ECONNRESET;
       }
     }
@@ -1357,51 +1418,64 @@ ssize_t co_socket_recv(co_socket * cc, void * buf, size_t buf_size, int flags)
 }
 
 
-co_socket * co_socket_accept_new(co_socket * cc, struct sockaddr * addrs, socklen_t * addrslen)
+bool co_socket_accept(co_socket * listenning, co_socket * accepted, struct sockaddr * addrs, socklen_t * addrslen)
 {
   int so = -1;
-  co_socket * cc2 = NULL;
 
-  if ( !cc ) {
-    errno = EBADF;
+  struct io_waiter * w;
+
+  struct cclist_node * node =
+      add_waiter(current_core, &(struct io_waiter ) {
+            .co = co_current(),
+            .tmo = listenning->recvtmo >= 0 ? co_current_time_ms() + listenning->recvtmo : -1,
+            .mask = EPOLLIN
+          });
+
+  if ( !node ) {
+    CF_FATAL("add_waiter() fails");
   }
   else {
 
-    struct io_waiter * w;
+    epoll_queue(&listenning->e, w = cclist_peek(node));
 
-    struct cclist_node * node =
-        add_waiter(current_core, &(struct io_waiter ) {
-              .co = co_current(),
-              .tmo = cc->recvtmo >= 0 ? co_current_time_ms() + cc->recvtmo : -1,
-              .mask = EPOLLIN
-            });
-
-    if ( !node ) {
-      CF_FATAL("add_waiter() fails");
-    }
-    else {
-
-      epoll_queue(&cc->e, w = cclist_peek(node));
-
-      while ( (so = accept(cc->e.so, addrs, addrslen)) == -1 && errno == EAGAIN ) {
-        if ( w->tmo != -1 && co_current_time_ms() >= w->tmo ) {
-          break;
-        }
-        co_call(current_core->main);
+    while ( (so = accept(listenning->e.so, addrs, addrslen)) == -1 && errno == EAGAIN ) {
+      if ( w->tmo != -1 && co_current_time_ms() >= w->tmo ) {
+        break;
       }
-
-      epoll_dequeue(&cc->e, w);
-      remove_waiter(current_core, node);
+      co_call(current_core->main);
     }
 
-    if ( so != -1 ) {
-      cc2 = co_socket_attach(so);
-    }
+    epoll_dequeue(&listenning->e, w);
+    remove_waiter(current_core, node);
   }
 
-  return cc2;
+  if ( so != -1 && !co_socket_init(accepted, so) ) {
+    close(so), so = -1;
+  }
+
+  return so != -1;
 }
 
+
+co_socket * co_socket_accept_new(co_socket * listenning, struct sockaddr * addrs, socklen_t * addrslen)
+{
+  co_socket * accepted = NULL;
+  if ( (accepted = malloc(sizeof(struct co_socket))) && !co_socket_accept(listenning, accepted, addrs, addrslen) ) {
+    free(accepted), accepted = NULL;
+  }
+  return accepted;
+}
+
+
+co_socket * co_socket_connect_new(const struct sockaddr *address, int sock_type, int proto, int tmo_ms)
+{
+  co_socket * cc = NULL;
+  if ( (cc = co_socket_create_new(address->sa_family, sock_type, proto))
+      && !(co_socket_connect(cc, address, tmo_ms)) ) {
+    co_socket_destroy(&cc, false);
+  }
+  return cc;
+}
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // co io

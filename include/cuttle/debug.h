@@ -13,6 +13,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdarg.h>
+#include <errno.h>
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,9 +38,14 @@ const char * cf_get_logfilename(void);
 void cf_set_loglevel(uint32_t mask);
 uint32_t cf_get_loglevel(void);
 
+bool cf_setup_signal_handler(void);
+
+
 void cf_plogv(int pri, const char * func, int line, const char * format, va_list arglist);
 void cf_plog(int pri, const char * func, int line, const char * format, ...)
   __attribute__ ((__format__ (__printf__, 4, 5)));
+
+
 
 void cf_pbt(void);
 

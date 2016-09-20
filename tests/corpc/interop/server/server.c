@@ -33,25 +33,19 @@ static client_context * client_context_new(corpc_channel * channel)
 }
 
 
-static bool on_client_accepted(corpc_channel * channel)
+static void on_client_accepted(corpc_channel * channel)
 {
   client_context * ctx = NULL;
-
-  bool fok = false;
-
   if ( (ctx = client_context_new(channel)) ) {
     corpc_channel_set_client_context(channel, ctx);
-    fok = true;
   }
-
-  return fok;
 }
 
-static void on_client_disconnected(corpc_channel * channel)
-{
-  (void)(channel);
-}
-
+//static void on_client_disconnected(corpc_channel * channel)
+//{
+//  (void)(channel);
+//}
+//
 
 static void on_smaster_authenticate(corpc_stream * st)
 {
@@ -149,6 +143,12 @@ static corpc_service mailbox_service = {
 };
 
 
+static const corpc_service * my_services[] = {
+  &smaster_service,
+  &mailbox_service,
+  NULL
+};
+
 void send_some_smaster_event_notify(client_context * cli)
 {
   corpc_msg msg;
@@ -219,15 +219,9 @@ int main(/*int argc, char *argv[]*/)
               .sin_addr.s_addr = 0,
             },
 
-            .services = (const corpc_service *[] ) {
-              &smaster_service,
-              &mailbox_service
-            },
-            .nb_services = 2,
+            .services = my_services,
 
-            .onaccepted = on_client_accepted,
-            .ondisconnected = on_client_disconnected,
-
+            .onaccepted = on_client_accepted
           });
 
 

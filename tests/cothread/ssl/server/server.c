@@ -49,7 +49,7 @@ static void process_connection(void * arg)
 
   CF_DEBUG("Started");
 
-  if ( !co_ssl_socket_accept(ssl_sock) ) {
+  if ( !co_ssl_accept(ssl_sock) ) {
     CF_CRITICAL("co_ssl_socket_accept() fails");
     goto end;
   }
@@ -75,7 +75,7 @@ static void process_connection(void * arg)
 
 end:
 
-  co_ssl_socket_close(&ssl_sock, false);
+  co_ssl_socket_destroy(&ssl_sock, false);
 
   CF_DEBUG("Finished");
 }
@@ -99,6 +99,8 @@ static bool on_accept_connection(struct co_ssl_listening_port * sslp, co_ssl_soc
     CF_CRITICAL("co_schedule(process_connection) fails");
     goto end;
   }
+
+  fok = true;
 
 end:
 

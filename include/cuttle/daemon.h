@@ -9,21 +9,13 @@
 #ifndef __cuttle_daemon_h__
 #define __cuttle_daemon_h__
 
-#include <stddef.h>
-#include <stdbool.h>
 #include <unistd.h>
-#include <sys/types.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 
-/**
- * setup_signal_handler()
- *    see errno on failure
- */
-bool cf_setup_signal_handler(void);
 
 
 /**
