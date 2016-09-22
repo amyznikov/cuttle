@@ -45,22 +45,14 @@ int main(int argc, char *argv[])
   const char * subj_OU = "Home";
   const char * subj_CN = "amyznikov";
 
+  const char * conf_path = NULL;
+
   const EVP_MD * md = NULL;
   const char * digest_name = NULL;
 
   const int maxext = 128;
   int nbext = 0;
   struct cf_x509_ext ext[maxext];
-
-
-  /////////////////
-
-
-  if ( !cf_ssl_initialize() ) {
-    fprintf(stderr, "cf_ssl_initialize() fails\n");
-    ERR_print_errors_fp(stderr);
-    goto end;
-  }
 
 
   /////////////////
@@ -172,6 +164,9 @@ int main(int argc, char *argv[])
     else if ( strncmp(argv[i], "CN=", 3) == 0 ) {
       subj_CN = argv[i] + 3;
     }
+    else if ( strncmp(argv[i], "config=", 7) == 0 ) {
+      conf_path = argv[i] + 7;
+    }
     else if ( strncmp(argv[i], "ext=", 4) == 0 ) {
       char * s, * v;
       if ( nbext >= maxext ) {
@@ -203,6 +198,15 @@ int main(int argc, char *argv[])
   cf_set_loglevel(CF_LOG_DEBUG);
   cf_set_logfilename("stderr");
 
+
+  /////////////////
+
+
+  if ( !cf_ssl_initialize(conf_path) ) {
+    fprintf(stderr, "cf_ssl_initialize() fails\n");
+    ERR_print_errors_fp(stderr);
+    goto end;
+  }
 
   /////////////////
 

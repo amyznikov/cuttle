@@ -96,115 +96,6 @@ static void cf_ssl_thread_setup(void)
   CRYPTO_set_locking_callback(cf_ssl_pthreads_locking_callback);
 }
 
-
-/*********************************************************************************************************************
- * OpenSSL Engines
- */
-
-static struct {
-  const char * name;
-  const char * dir;
-  const char * sConf;
-  ENGINE * engine;
-} engines[] = {
-    {
-        .name = "gost",
-        .dir = "../engines/ccgost",
-        .sConf = ""
-            "openssl_conf = openssl_def\n"
-            "\n"
-            "[openssl_def]\n"
-            "engines = engine_section\n"
-            "\n"
-            "[engine_section]\n"
-            "gost = gost_section\n"
-            "\n"
-            "[gost_section]\n"
-            "default_algorithms = ALL\n"
-            "\n"
-    },
-    {
-        .name = "dstu",
-        .dir = "../engines/uadstu",
-        .sConf = ""
-            "openssl_conf = openssl_def\n"
-            "\n"
-            "[openssl_def]\n"
-            "engines = engine_section\n"
-            "\n"
-            "[engine_section]\n"
-            "dstu = dstu_section\n"
-            "\n"
-            "[dstu_section]\n"
-            "default_algorithms = ALL\n"
-            "\n"
-    }
-};
-
-#define GOST_Engine (engines[0].engine)
-#define DSTU_Engine (engines[1].engine)
-
-static void cf_ssl_load_engines(void)
-{
-  for ( size_t i = 0, n = sizeof(engines) / sizeof(engines[0]); i < n; ++i ) {
-
-    CONF * pConfig = NULL;
-    BIO * bpConf = NULL;
-
-    char sConf[strlen(engines[i].sConf) + 1];
-    long lErrLine;
-
-    bool fok = false;
-
-    strcpy(sConf, engines[i].sConf);
-
-    if ( !(pConfig = NCONF_new(NULL)) ) {
-      //CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "NCONF_new() fails");
-      goto end;
-    }
-
-    if ( !(bpConf = BIO_new_mem_buf(sConf, -1)) ) {
-      //CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "BIO_new_mem_buf() fails");
-      goto end;
-    }
-
-    if ( !NCONF_load_bio(pConfig, bpConf, &lErrLine) ) {
-      //CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "NCONF_load_bio() fails");
-      goto end;
-    }
-
-    if ( !CONF_modules_load(pConfig, NULL, 0) ) {
-      //CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "CONF_modules_load() fails");
-      goto end;
-    }
-
-    if ( !(engines[i].engine = ENGINE_by_id(engines[i].name)) ) {
-      //CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "ENGINE_by_id('%s') fails", engines[i].name);
-      goto end;
-    }
-
-    fok = true;
-
-end : ;
-
-    if ( bpConf ) {
-      BIO_free(bpConf);
-    }
-
-    if ( pConfig ) {
-      NCONF_free(pConfig);
-    }
-
-    if ( !fok ) {
-//      ERR_print_errors_fp(stderr);
-    }
-  }
-
-  ERR_clear_error();
-}
-
-
-
 //static void cf_ssl_thread_cleanup(void)
 //{
 //  int i, n;
@@ -216,43 +107,157 @@ end : ;
 //}
 
 
-static bool cf_ssl_set_rand_method(void)
+static bool cf_ssl_set_rand_method(const char * openssl_conf)
 {
-  // const RAND_METHOD * rm = NULL;
-  //    if ( !DSTU_Engine || !(rm = ENGINE_get_RAND(DSTU_Engine)) ) {
-  //      CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "ENGINE_get_RAND(DSTU_Engine) fails: DSTU_Engine=%p", DSTU_Engine);
-  //      goto end;
-  //    }
-  //
-  //    if ( !RAND_set_rand_method(rm) ) {
-  //      CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "RAND_set_rand_method(DSTU_Engine:rand_method=%p) fails", rm);
-  //      goto end;
-  //    }
+  /*
+  To make this working, add something like this at the end of openssl.cnf:
+
+  [dstu_section]
+  engine_id = dstu
+  dynamic_path = /usr/local/lib/engines/libdstu.so
+  default_algorithms = ALL
+
+  [$cuttlessl_rand]
+
+  # engine_id, that specifies default engine for random number generation.
+  # NOTE: If this variable is used, all default_algorithms of this engine will
+  # be available in application even if it is not included into [engine_section].
+  def_rand_engine = ${dstu_section::engine_id}
+  */
+
+  CONF * defConfig = NULL;
+  ENGINE * randEngine = NULL;
+  long err = 0;
+  bool changed = false;
+  char * randEngineID = NULL;
+
+
+  if ( !(defConfig = NCONF_new(NULL)) ) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "NCONF_new() fails");
+    goto end;
+  }
+
+  if (!openssl_conf) (openssl_conf =  CONF_get1_default_config_file());
+  if (!NCONF_load(defConfig, openssl_conf, &err))  {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "NCONF_load(CONF_get1_default_config_file()) fails");
+    goto end;
+  }
+
+  if( !(randEngineID = _CONF_get_string(defConfig, "cuttlessl_rand", "def_rand_engine")))  {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "Cannot find $cuttlessl_rand::defRandEngine value in config file.");
+    goto end;
+  }
+
+  randEngine = ENGINE_by_id(randEngineID);
+  if(!randEngine) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "ENGINE_by_id() fails");
+    goto end;
+  }
+
+  if(!ENGINE_init(randEngine)) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "ENGINE_init() fails");
+    goto end;
+  }
+
+  if( !ENGINE_get_RAND(randEngine) ) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "ENGINE_get_RAND() fails, engine_id = %s", randEngineID);
+    goto end;
+  }
+
+  if(! ENGINE_register_RAND(randEngine)){
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "ENGINE_register_RAND() fails, engine_id = %s", randEngineID);
+    goto end;
+  }
+
+  if(! ENGINE_set_default(randEngine, ENGINE_METHOD_RAND)){
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "ENGINE_set_default(ENGINE_METHOD_RAND) fails, engine_id = %s", randEngineID);
+    goto end;
+  }
+
+  changed = true;
+  CF_INFO("Engine '%s' used as default for random number generation.", randEngineID);
+
+  end:
+  if(!changed) {
+    CF_INFO("Cannot set %s engine as default for random number generation. Method was not changed.", randEngineID);
+  }
+  ENGINE_free(randEngine);
+  NCONF_free(defConfig);
+  return changed;
+
   return true;
 }
 
-
-
-bool cf_ssl_initialize(void)
+static bool cf_ssl_load_config(const char * openssl_conf)
 {
+  bool loaded = false;
+  if (!openssl_conf) (openssl_conf =  CONF_get1_default_config_file());
+
+  if( CONF_modules_load_file(openssl_conf, "cuttlessl_conf", 0) <= 0)  {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "CONF_modules_load_file(%s, 'cuttlessl_conf', NULL)) fails", openssl_conf);
+    goto end;
+  }
+
+  CF_INFO("Initialized using the following config: %s", openssl_conf);
+  loaded = true;
+
+  end:
+  CONF_modules_free();
+  return loaded;
+}
+
+bool cf_ssl_initialize(const char * openssl_conf)
+{
+  /*
+  To load extra engines add the folloving lines (as an example) to file openssl_conf:
+
+  #The last line in default section (just before first [...]):
+
+  cuttlessl_conf = cuttlessl_def
+
+  #at the end of file:
+
+  #####################################################################
+  [cuttlessl_def]
+  engines = engine_section
+
+  #####################################################################
+  [engine_section]
+  gost = gost_section
+  dstu = dstu_section
+
+  [gost_section]
+  engine_id = gost
+  dynamic_path = /usr/local/lib/engines/libgost.so
+  default_algorithms = ALL
+  CRYPT_PARAMS = id-Gost28147-89-CryptoPro-A-ParamSet
+
+  [dstu_section]
+  engine_id = dstu
+  dynamic_path = /usr/local/lib/engines/libdstu.so
+  default_algorithms = ALL
+
+  */
+
   static bool is_initialized = false;
 
   if ( !is_initialized ) {
 
     SSL_library_init();
 
-    OPENSSL_no_config();
+    OPENSSL_load_builtin_modules();
+    ENGINE_load_builtin_engines();
 
     ERR_load_crypto_strings();
     cf_init_ssl_error_strings();
 
-    OPENSSL_load_builtin_modules();
-    ENGINE_load_builtin_engines();
+    if ( !cf_ssl_load_config(openssl_conf) ) {
+      CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_ssl_load_config(%s) fails", openssl_conf);
+      goto end;
+    }
 
-    cf_ssl_load_engines();
-
-    if ( !cf_ssl_set_rand_method() ) {
-      CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_ssl_set_rand_method() fails");
+    if ( !cf_ssl_set_rand_method(openssl_conf) ) {
+      CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_ssl_set_rand_method(%s) fails", openssl_conf);
       goto end;
     }
 
@@ -265,8 +270,6 @@ bool cf_ssl_initialize(void)
     is_initialized = true;
   }
 
-end:
-
+  end:
   return is_initialized;
 }
-

@@ -18,7 +18,7 @@ extern "C" {
 #endif
 
 
-bool cf_ssl_initialize(void);
+bool cf_ssl_initialize(const char * openssl_conf);
 
 /**
  * Returns comiled OPENSSL_VERSION_NUMBER
