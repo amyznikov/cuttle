@@ -13,6 +13,7 @@
 #define __cuttle_dns_resolve_h__
 
 #include <netdb.h>
+#include <arpa/inet.h>
 
 #ifdef __cplusplus
 extern "C" {

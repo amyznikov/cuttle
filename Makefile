@@ -9,19 +9,15 @@ SHELL=/bin/bash
 
 LIBNAME=cuttle
 VERSION = 0.0.1
+ARCH=native
 
 LIB=lib$(LIBNAME).a
 
+
 all: lib
 
-cross   =
-sysroot =
-DESTDIR =
-prefix  = /usr/local
-incdir  = $(prefix)/include
-libdir  = $(prefix)/lib
-pcdir   = $(libdir)/pkgconfig
-pc      = $(pcdir)/$(LIBNAME).pc
+include $(ARCH).mk
+
 
 installdirs = $(addprefix $(DESTDIR)/,$(prefix) $(incdir) $(libdir) $(pcdir))
 $(installdirs):
@@ -29,23 +25,25 @@ $(installdirs):
 
 
 # preprocessor flags
-CPPFLAGS := -Iinclude -Isrc -I/usr/include/postgresql -I/usr/local/include/postgresql $(CPPFLAGS)
-
-# C Compiler and flags
-CC ?= $(cross)gcc -std=c99
-CFLAGS=-Wall -Wextra -O3 -g3
-
-# C++ Compiler and flags
-CXX ?= $(cross)gcc -std=c++11
-CXXFLAGS=$(CFLAGS)
+CPPFLAGS += -Iinclude -Isrc
 
 
 #########################################
 
-HEADERS += $(wildcard include/cuttle/*.h include/cuttle/*/*.h)
-INTERNAL_HEADERS += $(wildcard src/*.h src/*/*.h)
+SRCDIRS = $(addprefix src/,. corpc cothread dns ifaddrs hash nanopb ssl) 
 
-SOURCES += $(wildcard src/*.c src/*/*.c)
+ifeq ("$(ARCH)","android")
+SRCDIRS += $(wildcard src/android/*)
+CFLAGS += $(addprefix -I,$(wildcard src/android/*))
+else 
+SRCDIRS += pg
+CFLAGS += -I/usr/include/postgresql -I/usr/local/include/postgresql
+endif
+
+HEADERS = $(wildcard include/cuttle/*.h include/*/*.h)
+
+SOURCES = $(foreach s,$(SRCDIRS),$(wildcard $(s)/*.c))
+INTERNAL_HEADERS = $(foreach s,$(SRCDIRS),$(wildcard src/$(s)/*.h))
 
 
 MODULES  =  $(addsuffix .o,$(basename $(SOURCES)))
@@ -85,10 +83,11 @@ uninstall:
 	
 
 test:
+	@echo "ARCH='$(ARCH)'"
+	@echo "SRCDIRS='$(SRCDIRS)'"
+	@echo "ndk_root=${ndk_root}"
 	@echo "CC=$(CC)"
-	@echo "CXX=$(CXX)"
 	@echo "CFLAGS=$(CFLAGS)"
-	@echo "CXXFLAGS=$(CXXFLAGS)"
 	@echo "CPPFLAGS=$(CPPFLAGS)"
 	@echo "LDFLAGS=$(LDFLAGS)"
 	@echo "SOURCES=$(SOURCES)"

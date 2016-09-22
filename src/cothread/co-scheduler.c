@@ -23,9 +23,18 @@
 #include <cuttle/cclist.h>
 #include "co-scheduler.h"
 
+#if __ANDROID__
+# include "android-spin-lock.h"
+#endif
 
 
-#define UNMASKED_EVENTS             (EPOLLERR|EPOLLHUP|EPOLLRDHUP)
+#if __ANDROID__
+  # define UNMASKED_EVENTS             (EPOLLERR|EPOLLHUP)
+  # define EPOLLONESHOT                0x0
+#else
+  # define UNMASKED_EVENTS             (EPOLLERR|EPOLLHUP|EPOLLRDHUP)
+#endif
+
 #define CREQ_LISTENER_STACK_SIZE    (128*1024)
 #define DEFAULT_THREAD_STACK_SIZE   (1024*1024)
 
@@ -228,7 +237,7 @@ static bool epoll_listener_init(void)
 
   if ( epoll_listener.eso == -1 ) {
 
-    if ( (epoll_listener.eso = epoll_create1(0)) == -1 ) {
+    if ( (epoll_listener.eso = epoll_create(1)) == -1 ) {
       CF_CRITICAL("epoll_create1() fails: %s", strerror(errno));
       status = -1;
     }

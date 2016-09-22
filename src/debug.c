@@ -17,12 +17,16 @@
 #include <sys/syscall.h>
 #include <errno.h>
 #include <signal.h>
-#include <execinfo.h>
 #include <ucontext.h>
 #include <openssl/err.h>
 
 #if __ANDROID__
   # include <android/log.h>
+  # ifndef EXIT_FAILURE
+    # define EXIT_FAILURE 1
+  # endif
+#else
+  #include <execinfo.h>
 #endif
 
 
@@ -81,9 +85,11 @@ static char * logfilename = NULL;
 static uint32_t logmask = CF_LOG_INFO;
 
 
+#if !__ANDROID__
 static inline pid_t gettid() {
   return (pid_t) syscall (SYS_gettid);
 }
+#endif
 
 static void getctime(struct ctime * ct)
 {
@@ -113,7 +119,6 @@ static const char * getctime_string(char buf[32])
 
 static inline void plogbegin(int pri)
 {
-#if !__ANDROID__
   const char * ctrl = NULL;
   switch ( pri ) {
     case CF_LOG_FATAL:
@@ -140,13 +145,10 @@ static inline void plogbegin(int pri)
   if ( ctrl ) {
     fputs(ctrl, fplog);
   }
-
-#endif
 }
 
 static inline void plogend(int pri)
 {
-#if !__ANDROID__
   const char * ctrl = NULL;
   switch ( pri )
   {
@@ -166,7 +168,6 @@ static inline void plogend(int pri)
   if ( ctrl ) {
     fputs(ctrl, fplog), fflush(fplog);
   }
-#endif
 }
 
 
@@ -264,21 +265,30 @@ static char pric(int pri)
 static void do_plogv(int pri, const char * func, int line, const char * format, va_list arglist)
 {
   pthread_mutex_lock(&mtx);
+
 #if __ANDROID__
-
-    // todo:
-    //  int __android_log_vprint(int prio, const char *tag,
-    //    const char *fmt, va_list ap);
-
-#else
+  if ( fplog == stderr || fplog == stdout ) {
+    char buf[1024] = "";
+    int n;
+    n = snprintf(buf, sizeof(buf) - 1, "|%c|%6d|%s| %-28s(): %4d :", pric(pri), gettid(), ctime_string(), func, line);
+    if ( n < (int) (sizeof(buf) - 1) ) {
+      vsnprintf(buf + n, sizeof(buf) - 1 - n, format, arglist);
+    }
+    __android_log_write(ANDROID_LOG_DEBUG, "cuttle", buf);
+  }
+  else
+#endif
+  {
     plogbegin(pri & 0x07);
     fprintf(fplog, "|%c|%6d|%s| %-28s(): %4d :", pric(pri), gettid(), ctime_string(), func, line);
     vfprintf(fplog, format, arglist);
     fputc('\n',fplog);
     dump_ssl_errors();
     plogend(pri & 0x07);
-#endif
+  }
+
   pthread_mutex_unlock(&mtx);
+
 }
 
 void cf_plogv(int pri, const char * func, int line, const char * format, va_list arglist)
@@ -301,6 +311,8 @@ void cf_plog(int pri, const char * func, int line, const char * format, ...)
 
 void cf_pbt(void)
 {
+#if !__ANDROID__
+
   int size;
   void * array[256];
   char ** messages = NULL;
@@ -325,6 +337,7 @@ void cf_pbt(void)
   if ( messages ) {
     free(messages);
   }
+#endif
 }
 
 
