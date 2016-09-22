@@ -1,5 +1,10 @@
-platform=android-16
-DESTDIR =
+NDK_PLATFORM=android-16
+
+NDK_ROOT=$(shell dirname $(shell command -v ndk-build))
+ifeq ($(NDK_ROOT),)
+$(error Can not clocate NDK root. Is NDK installed correctly?) 
+endif
+
 prefix  = /usr
 incdir  = $(prefix)/include
 libdir  = $(prefix)/lib
@@ -7,12 +12,8 @@ pcdir   = $(libdir)/pkgconfig
 pc      = $(pcdir)/$(LIBNAME).pc
 
 
-ndk_root=$(shell dirname $(shell command -v ndk-build))
-ifeq ($(ndk_root),)
-$(error Can not clocate NDK root. Is NDK installed correctly?) 
-endif
 
-SYSROOT=$(ndk_root)/platforms/${platform}/arch-arm
+SYSROOT=$(NDK_ROOT)/platforms/${NDK_PLATFORM}/arch-arm
 DESTDIR=$(SYSROOT)
 
 CC = $(shell ndk-which gcc) -std=gnu99

@@ -10,6 +10,7 @@ SHELL=/bin/bash
 LIBNAME=cuttle
 VERSION = 0.0.1
 ARCH=native
+#ARCH=arm-linux-androideabi
 
 LIB=lib$(LIBNAME).a
 
@@ -24,15 +25,13 @@ $(installdirs):
 	mkdir -p $@
 
 
-# preprocessor flags
 CPPFLAGS += -Iinclude -Isrc
-
 
 #########################################
 
 SRCDIRS = $(addprefix src/,. corpc cothread dns ifaddrs hash nanopb ssl) 
 
-ifeq ("$(ARCH)","android")
+ifeq ($(findstring androideabi,$(ARCH)),androideabi)
 SRCDIRS += $(wildcard src/android/*)
 CFLAGS += $(addprefix -I,$(wildcard src/android/*))
 else 
@@ -45,6 +44,9 @@ HEADERS = $(wildcard include/cuttle/*.h include/*/*.h)
 SOURCES = $(foreach s,$(SRCDIRS),$(wildcard $(s)/*.c))
 INTERNAL_HEADERS = $(foreach s,$(SRCDIRS),$(wildcard src/$(s)/*.h))
 
+
+
+#########################################
 
 MODULES  =  $(addsuffix .o,$(basename $(SOURCES)))
 $(MODULES): $(HEADERS) $(INTERNAL_HEADERS)
@@ -85,7 +87,7 @@ uninstall:
 test:
 	@echo "ARCH='$(ARCH)'"
 	@echo "SRCDIRS='$(SRCDIRS)'"
-	@echo "ndk_root=${ndk_root}"
+	@echo "NDK_ROOT=${NDK_ROOT}"
 	@echo "CC=$(CC)"
 	@echo "CFLAGS=$(CFLAGS)"
 	@echo "CPPFLAGS=$(CPPFLAGS)"
