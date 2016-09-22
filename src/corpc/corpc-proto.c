@@ -99,7 +99,6 @@ bool corpc_proto_recv_msg(co_ssl_socket * ssl_sock, comsg * msgp)
   uint32_t crc_received, crc_actual;
 
   if ( !co_proto_recv_chunk(ssl_sock, &msgp->hdr) ) {
-    CF_CRITICAL("co_proto_recv_chunk() fails");
     goto end;
   }
 

@@ -15,28 +15,29 @@
 #include "../proto/smaster.h"
 
 
+#define NB_RECEIVERS  10
 
-static bool event_sender_finished = false;
-static bool event_receiver_running = false;
-static bool event_receiver_finished = false;
-static bool client_main_finished = false;
+static int event_sender_finished = 0;
+static int event_receiver_running = 0;
+static int event_receiver_finished = 0;
+static int client_main_finished = 0;
 
 static co_thread_lock_t thread_lock = CO_THREAD_LOCK_INITIALIZER;
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 
-static void set_event(bool * event)
+static void set_event(int * event)
 {
   co_thread_lock(&thread_lock);
-  *event = true;
+  ++*event;
   co_thread_signal(&thread_lock);
   co_thread_unlock(&thread_lock);
 }
 
-static void wait_event(bool * event)
+static void wait_event(int * event, int v)
 {
   co_thread_lock(&thread_lock);
-  while ( !*event ) {
+  while ( *event != v ) {
     co_thread_wait(&thread_lock, -1);
   }
   co_thread_unlock(&thread_lock);
@@ -217,30 +218,24 @@ static void client_main(void * arg )
   }
 
 
-  co_sleep(5000);
+  // co_sleep(5000);
 
-  CF_DEBUG("C corpc_channel_close()");
-  corpc_channel_close(&channel);
-  CF_DEBUG("R corpc_channel_close()");
+//  CF_DEBUG("C corpc_channel_close()");
+//  corpc_channel_close(&channel);
+//  CF_DEBUG("R corpc_channel_close()");
 
 
 
-  CF_DEBUG("C wait_event(&event_sender_finished)");
-  wait_event(&event_sender_finished);
-  CF_DEBUG("R wait_event(&event_sender_finished)");
+  wait_event(&event_sender_finished, 1);
 
   if ( event_receiver_running ) {
-    CF_DEBUG("C wait_event(&event_receiver_finished)");
-    wait_event(&event_receiver_finished);
-    CF_DEBUG("R wait_event(&event_receiver_finished)");
+    wait_event(&event_receiver_finished, event_receiver_running);
   }
 
 end:
 
 
-  CF_DEBUG("C corpc_channel_relase()");
   corpc_channel_close(&channel);
-  CF_DEBUG("R corpc_channel_relase()");
 
   set_event(&client_main_finished);
   CF_DEBUG("Finished");

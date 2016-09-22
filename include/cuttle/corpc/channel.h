@@ -34,11 +34,10 @@ enum corpc_channel_state {
   corpc_channel_state_idle = 0,
   corpc_channel_state_resolving = 1,
   corpc_channel_state_connecting = 2,
-  corpc_channel_state_connected = 3,
-  corpc_channel_state_accepting = 4,
-  corpc_channel_state_accepted = 5,
-  corpc_channel_state_disconnecting = 6,
-  corpc_channel_state_closed = 7,
+  corpc_channel_state_accepting = 3,
+  corpc_channel_state_established = 4,
+  corpc_channel_state_disconnecting = 5,
+  corpc_channel_state_closed = 6,
 } corpc_channel_state;
 
 const char * corpc_channel_state_string(
@@ -100,8 +99,10 @@ struct corpc_open_stream_opts {
 corpc_channel * corpc_channel_new(const struct corpc_channel_opts * opts);
 
 bool corpc_channel_open(corpc_channel * channel);
-
 void corpc_channel_close(corpc_channel ** channel);
+
+void corpc_channel_addref(corpc_channel * channel);
+void corpc_channel_release(corpc_channel ** channel);
 
 enum corpc_channel_state corpc_get_channel_state(const corpc_channel * channel);
 
@@ -126,9 +127,6 @@ enum corpc_stream_state corpc_get_stream_state(const corpc_stream * stream);
 
 void * corpc_stream_get_channel_client_context(const corpc_stream * stream);
 
-
-//void corpc_stream_addref(corpc_stream * st);
-//void corpc_stream_release(corpc_stream ** st);
 
 
 
