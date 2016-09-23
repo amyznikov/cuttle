@@ -107,106 +107,7 @@ static void cf_ssl_thread_setup(void)
 //}
 
 
-static bool cf_ssl_set_rand_method(const char * openssl_conf)
-{
-  /*
-  To make this working, add something like this at the end of openssl.cnf:
-
-  [dstu_section]
-  engine_id = dstu
-  dynamic_path = /usr/local/lib/engines/libdstu.so
-  default_algorithms = ALL
-
-  [$cuttlessl_rand]
-
-  # engine_id, that specifies default engine for random number generation.
-  # NOTE: If this variable is used, all default_algorithms of this engine will
-  # be available in application even if it is not included into [engine_section].
-  def_rand_engine = ${dstu_section::engine_id}
-  */
-
-  CONF * defConfig = NULL;
-  ENGINE * randEngine = NULL;
-  long err = 0;
-  bool changed = false;
-  char * randEngineID = NULL;
-
-
-  if ( !(defConfig = NCONF_new(NULL)) ) {
-    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "NCONF_new() fails");
-    goto end;
-  }
-
-  if (!openssl_conf) (openssl_conf =  CONF_get1_default_config_file());
-  if (!NCONF_load(defConfig, openssl_conf, &err))  {
-    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "NCONF_load(CONF_get1_default_config_file()) fails");
-    goto end;
-  }
-
-  if( !(randEngineID = _CONF_get_string(defConfig, "cuttlessl_rand", "def_rand_engine")))  {
-    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "Cannot find $cuttlessl_rand::defRandEngine value in config file.");
-    goto end;
-  }
-
-  randEngine = ENGINE_by_id(randEngineID);
-  if(!randEngine) {
-    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "ENGINE_by_id() fails");
-    goto end;
-  }
-
-  if(!ENGINE_init(randEngine)) {
-    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "ENGINE_init() fails");
-    goto end;
-  }
-
-  if( !ENGINE_get_RAND(randEngine) ) {
-    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "ENGINE_get_RAND() fails, engine_id = %s", randEngineID);
-    goto end;
-  }
-
-  if(! ENGINE_register_RAND(randEngine)){
-    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "ENGINE_register_RAND() fails, engine_id = %s", randEngineID);
-    goto end;
-  }
-
-  if(! ENGINE_set_default(randEngine, ENGINE_METHOD_RAND)){
-    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "ENGINE_set_default(ENGINE_METHOD_RAND) fails, engine_id = %s", randEngineID);
-    goto end;
-  }
-
-  changed = true;
-  CF_INFO("Engine '%s' used as default for random number generation.", randEngineID);
-
-  end:
-  if(!changed) {
-    CF_INFO("Cannot set %s engine as default for random number generation. Method was not changed.", randEngineID);
-  }
-  ENGINE_free(randEngine);
-  NCONF_free(defConfig);
-  return changed;
-
-  return true;
-}
-
 static bool cf_ssl_load_config(const char * openssl_conf)
-{
-  bool loaded = false;
-  if (!openssl_conf) (openssl_conf =  CONF_get1_default_config_file());
-
-  if( CONF_modules_load_file(openssl_conf, "cuttlessl_conf", 0) <= 0)  {
-    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "CONF_modules_load_file(%s, 'cuttlessl_conf', NULL)) fails", openssl_conf);
-    goto end;
-  }
-
-  CF_INFO("Initialized using the following config: %s", openssl_conf);
-  loaded = true;
-
-  end:
-  CONF_modules_free();
-  return loaded;
-}
-
-bool cf_ssl_initialize(const char * openssl_conf)
 {
   /*
   To load extra engines add the folloving lines (as an example) to file openssl_conf:
@@ -239,6 +140,106 @@ bool cf_ssl_initialize(const char * openssl_conf)
 
   */
 
+  /*
+  To make this working, add something like this at the end of openssl.cnf:
+
+  [dstu_section]
+  engine_id = dstu
+  dynamic_path = /usr/local/lib/engines/libdstu.so
+  default_algorithms = ALL
+
+  [$cuttlessl_rand]
+
+  # engine_id, that specifies default engine for random number generation.
+  # NOTE: If this variable is used, all default_algorithms of this engine will
+  # be available in application even if it is not included into [engine_section].
+  def_rand_engine = ${dstu_section::engine_id}
+  */
+
+  CONF * def_config = NULL;
+  ENGINE * rand_engine = NULL;
+  long err = 0;
+  bool rand_changed = false;
+  bool loaded = false;
+  char * rand_engineID = NULL;
+  char * conf_path;
+
+  if (!openssl_conf) {
+    conf_path =  CONF_get1_default_config_file();
+  }
+  else {
+    conf_path = openssl_conf;
+  }
+
+
+  if ( !(def_config = NCONF_new(NULL)) ) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "NCONF_new() fails");
+    goto end;
+  }
+
+  if (!NCONF_load(def_config, conf_path, &err))  {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "NCONF_load() fails");
+    goto end;
+  }
+
+  if( CONF_modules_load(def_config, "cuttlessl_conf", 0) <= 0)  {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "CONF_modules_load(%s, 'cuttlessl_conf', NULL)) fails", conf_path);
+    goto end;
+  }
+
+  CF_INFO("Initialized using the following config: %s", conf_path);
+  loaded = true;
+
+  /* set rand method */
+  if( !(rand_engineID = _CONF_get_string(def_config, "cuttlessl_rand", "def_rand_engine")))  {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "Cannot find $cuttlessl_rand::defRandEngine value in config file.");
+    goto end;
+  }
+
+  rand_engine = ENGINE_by_id(rand_engineID);
+  if(!rand_engine) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "ENGINE_by_id() fails");
+    goto end;
+  }
+
+  if(!ENGINE_init(rand_engine)) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "ENGINE_init() fails");
+    goto end;
+  }
+
+  if( !ENGINE_get_RAND(rand_engine) ) {
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "ENGINE_get_RAND() fails, engine_id = %s", rand_engineID);
+    goto end;
+  }
+
+  if(! ENGINE_register_RAND(rand_engine)){
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "ENGINE_register_RAND() fails, engine_id = %s", rand_engineID);
+    goto end;
+  }
+
+  if(! ENGINE_set_default(rand_engine, ENGINE_METHOD_RAND)){
+    CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "ENGINE_set_default(ENGINE_METHOD_RAND) fails, engine_id = %s", rand_engineID);
+    goto end;
+  }
+
+  rand_changed = true;
+  CF_INFO("Engine '%s' used as default for random number generation.", rand_engineID);
+
+  end:
+  if(!loaded) {
+    CF_INFO("Error occurred while reading configuration file %s. No config was used.", conf_path);
+  }
+  if(!rand_changed) {
+    CF_INFO("Cannot set %s engine as default for random number generation. Method was not changed.", rand_engineID);
+  }
+  ENGINE_free(rand_engine);
+  CONF_modules_free();
+  NCONF_free(def_config);
+  return loaded;
+}
+
+bool cf_ssl_initialize(const char * openssl_conf)
+{
   static bool is_initialized = false;
 
   if ( !is_initialized ) {
@@ -252,12 +253,7 @@ bool cf_ssl_initialize(const char * openssl_conf)
     cf_init_ssl_error_strings();
 
     if ( !cf_ssl_load_config(openssl_conf) ) {
-      CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_ssl_load_config(%s) fails", openssl_conf);
-      goto end;
-    }
-
-    if ( !cf_ssl_set_rand_method(openssl_conf) ) {
-      CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_ssl_set_rand_method(%s) fails", openssl_conf);
+      CF_SSL_ERR(CF_SSL_ERR_OPENSSL, "cf_ssl_load_config() fails");
       goto end;
     }
 
