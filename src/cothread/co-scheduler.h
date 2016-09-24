@@ -11,7 +11,7 @@
 #define __cothread_scheduler_h__
 
 #include <cuttle/cothread/scheduler.h>
-#include <pcl.h>
+#include <cuttle/cothread/cothread.h>
 #include "pthread_wait.h"
 
 #ifdef __cplusplus
@@ -34,7 +34,7 @@ enum {
 };
 
 struct iorq {
-  struct io_waiter *head, *tail;
+  struct io_waiter * head, * tail;
   int so;
   int type;
 };

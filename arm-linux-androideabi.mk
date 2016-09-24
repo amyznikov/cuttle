@@ -17,5 +17,7 @@ SYSROOT=$(NDK_ROOT)/platforms/${NDK_PLATFORM}/arch-arm
 DESTDIR=$(SYSROOT)
 
 CC = $(shell ndk-which gcc) -std=gnu99
-CFLAGS = -Wall -Wextra -Wno-missing-field-initializers -O3 -g --sysroot="$(SYSROOT)" -D__ANDROID__=1
+CFLAGS = -march=armv7-a -Wall -Wextra -Wno-missing-field-initializers -O3 -g --sysroot="$(SYSROOT)" -D__ANDROID__=1 
 
+MODULE_DIR = src/ucontext/arm
+include $(MODULE_DIR)/ucontext.mk

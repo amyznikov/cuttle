@@ -1022,7 +1022,7 @@ static bool ssl_server_connect(corpc_channel * channel)
   }
 
   if ( !(ssl_sock = co_ssl_socket_create_new(ai->ai_family, SOCK_STREAM, IPPROTO_TCP, channel->ssl_ctx)) ) {
-    CF_CRITICAL("co_ssl_socket_new() fails : %s ", strerror(errno));
+    CF_CRITICAL("co_ssl_socket_create_new() fails : %s ", strerror(errno));
     goto end;
   }
 

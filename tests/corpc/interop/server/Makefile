@@ -43,7 +43,7 @@ STRIP = @echo "don't strip "
 
 LIBCUTTLE=../../../../libcuttle.a
 
-LDLIBS += $(LIBCUTTLE) -L/usr/local/lib /usr/local/lib/libpcl.a -lssl -lcrypto -lpthread
+LDLIBS += $(LIBCUTTLE) -L/usr/local/lib -lssl -lcrypto -lpthread
 
 
 #########################################

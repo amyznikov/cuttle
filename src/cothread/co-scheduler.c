@@ -43,6 +43,8 @@
 #define CO_YIELD                    0x04
 
 
+#define CF_TRACE(...) CF_DEBUG(__VA_ARGS__)
+
 
 #define co_current_time_ms()  cf_get_monotic_ms()
 
@@ -263,7 +265,7 @@ struct co_scheduler_context {
   cclist waiters;
   int cs[2];
   pthread_spinlock_t lock;
-  bool started :1, csbusy : 1;
+  volatile bool started :1, csbusy : 1;
 };
 
 
@@ -404,7 +406,7 @@ static void schedule_request_handler(void * arg)
   int32_t status;
 
 
-  //
+  CF_TRACE("BEG");
 
   while ( (size = co_recv(current_core->cs[1], &creq, sizeof(creq), 0)) == (ssize_t) sizeof(creq) ) {
 
@@ -569,26 +571,38 @@ static void * pclthread(void * arg)
 
   current_core = arg;
 
+  CF_TRACE("C pthread_spin_init()");
   pthread_spin_init(&current_core->lock, 0);
+  CF_TRACE("R pthread_spin_init()");
 
-  if ( co_thread_init() != 0 ) {
-    CF_FATAL("FATAL: co_thread_init() fails");
+  CF_TRACE("C co_thread_init()");
+  if ( !co_thread_init() ) {
+    CF_FATAL("FATAL: co_thread_init() fails: %s", strerror(errno));
     exit(1);
   }
+  CF_TRACE("R co_thread_init()");
 
+  CF_TRACE("C current_core->main = co_current()");
   if ( !(current_core->main = co_current()) ) {
     CF_FATAL("FATAL: co_current() fails");
     exit(1);
   }
+  CF_TRACE("R current_core->main = co_current()");
 
+  CF_TRACE("C co_create(schedule_request_handler)");
   if ( !(co = co_create(schedule_request_handler, NULL, NULL, CREQ_LISTENER_STACK_SIZE)) ) {
     CF_FATAL("FATAL: co_create(schedule_request_handler) fails");
     exit(1);
   }
+  CF_TRACE("R co_create(schedule_request_handler)");
 
+  CF_TRACE("C epoll_listener_lock()");
   epoll_listener_lock();
+  CF_TRACE("R epoll_listener_lock()");
+
   ccfifo_ppush(&current_core->queue, co);
 
+  CF_TRACE("current_core->started = true");
   current_core->started = true;
 
   while ( 42 ) {
@@ -630,39 +644,68 @@ static pthread_t new_pcl_thread(void)
 
   int status;
 
+  CF_TRACE("BEG");
+
   if ( !(ctx = calloc(1, sizeof(*ctx))) ) {
     goto end;
   }
 
   ctx->cs[0] = ctx->cs[1] = -1;
 
+  CF_TRACE("C socketpair()");
   if ( socketpair(AF_LOCAL, SOCK_STREAM, 0, ctx->cs) != 0 ) {
+    CF_FATAL("socketpair() fails: %s", strerror(errno));
     goto end;
   }
+  CF_TRACE("R socketpair()");
 
   if ( !set_non_blocking(ctx->cs[1], true) ) {
+    CF_FATAL("set_non_blocking() fails: %s", strerror(errno));
     goto end;
   }
 
+//  if ( !set_non_blocking(ctx->cs[0], true) ) {
+//    CF_FATAL("set_non_blocking() fails: %s", strerror(errno));
+//    goto end;
+//  }
+
+  CF_TRACE("C ccfifo_init()");
   if ( !ccfifo_init(&ctx->queue, 1000, sizeof(coroutine_t)) ) {
+    CF_FATAL("cclist_init() fails: %s", strerror(errno));
     goto end;
   }
+  CF_TRACE("R ccfifo_init()");
 
+  CF_TRACE("C cclist_init()");
   if ( !cclist_init(&ctx->waiters, 10000, sizeof(struct io_waiter)) ) {
+    CF_FATAL("cclist_init() fails: %s", strerror(errno));
     goto end;
   }
+  CF_TRACE("R cclist_init()");
 
   g_sched_array[g_ncpu++] = ctx;
 
+  CF_TRACE("C pthread_create(pclthread)");
   if ( (status = pthread_create(&pid, NULL, pclthread, ctx)) ) {
     g_sched_array[--g_ncpu] = NULL;
     errno = status;
+    CF_FATAL("pthread_create(pclthread) fails: %s", strerror(errno));
     goto end;
   }
+  CF_TRACE("R pthread_create(pclthread)");
+
+  CF_TRACE("C epoll_listener_lock()");
+  epoll_listener_lock();
+  CF_TRACE("R epoll_listener_lock()");
 
   while ( !ctx->started ) {
-    usleep(20 * 1000);
+    CF_TRACE("ctx->started=%d", ctx->started);
+    epoll_listener_unlock();
+    usleep(100 * 1000);
+    epoll_listener_lock();
   }
+  epoll_listener_unlock();
+  CF_TRACE("ctx->started=%d", ctx->started);
 
 end:
 
@@ -679,16 +722,20 @@ end:
     free(ctx);
   }
 
+
+  CF_TRACE("END");
   return pid;
 }
 
 
 static void * co_stack_alloc(size_t size)
 {
-  void * p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
-  if ( !p ) {
+  void * p;
+  CF_TRACE("C mmap()");
+  if ( !(p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0)) ) {
     CF_FATAL("mmap() fails: %s", strerror(errno));
   }
+  CF_TRACE("R mmap(): p=%p", p);
   return p;
 }
 
@@ -707,15 +754,19 @@ bool co_scheduler_init(int ncpu)
     ncpu = 1;
   }
 
+  CF_TRACE("C epoll_listener_init()");
   if ( !epoll_listener_init() ) {
     goto end;
   }
+  CF_TRACE("R epoll_listener_init()");
 
   if ( !(g_sched_array = calloc(ncpu, sizeof(struct co_scheduler_context*))) ) {
     goto end;
   }
 
+  CF_TRACE("C co_set_mem_allocator()");
   co_set_mem_allocator(co_stack_alloc, co_stack_free);
+  CF_TRACE("R co_set_mem_allocator()");
 
   while ( ncpu > 0 && new_pcl_thread() ) {
     --ncpu;
@@ -735,6 +786,8 @@ bool co_schedule(void (*func)(void*), void * arg, size_t stack_size)
 
   core = g_sched_array[rand() % g_ncpu];
 
+  CF_TRACE("C send_schedule_request()");
+
   status = send_schedule_request(core,
       &(struct schedule_request) {
         .req = creq_start_cothread,
@@ -742,6 +795,8 @@ bool co_schedule(void (*func)(void*), void * arg, size_t stack_size)
         .thread_arg = arg,
         .stack_size = stack_size
       });
+
+  CF_TRACE("R send_schedule_request(): status=%s", strerror(status));
 
   if ( status ) {
     errno = status;

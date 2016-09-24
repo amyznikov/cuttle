@@ -9,6 +9,24 @@
 #include <cuttle/cothread/resolve.h>
 #include <cuttle/dns/resolve.h>
 #include <errno.h>
+#include <arpa/inet.h>
+#include <stdio.h>
+#include <malloc.h>
+
+#define INET_ADDR(a,b,c,d)      (uint32_t)((((uint32_t)(a))<<24)|((b)<<16)|((c)<<8)|(d))
+#define INET_BYTE(n,x)          ((uint8_t)((x >> (n*8) ) & 0x000000FF))
+#define IP4_ADDRSTRLEN          32
+
+
+static bool parse_ip4_addrs(const char * addrs, uint32_t * address, uint16_t * port)
+{
+  uint8_t a1, a2, a3, a4;
+  if ( sscanf(addrs, "%hhu.%hhu.%hhu.%hhu:%hu", &a1, &a2, &a3, &a4, port) >= 4 ) {
+    *address = INET_ADDR(a1, a2, a3, a4);
+    return true;
+  }
+  return false;
+}
 
 
 int co_resolve(const char * name, struct addrinfo ** restrict aip, const struct addrinfo * restrict hints,
@@ -17,6 +35,24 @@ int co_resolve(const char * name, struct addrinfo ** restrict aip, const struct 
   struct cf_dns_query * q = NULL;
   int status;
   int so;
+
+  uint32_t address = 0;
+  uint16_t port = 0;
+  struct sockaddr_in * sin;
+
+  if ( parse_ip4_addrs(name, &address, &port) ) {
+    *aip = calloc(1, sizeof(struct addrinfo));
+    (*aip)->ai_addrlen = sizeof(struct sockaddr_in);
+    (*aip)->ai_addr = calloc(1, sizeof(struct sockaddr_in));
+    sin = (struct sockaddr_in *)(*aip)->ai_addr;
+    sin->sin_family = AF_INET;
+    sin->sin_port = htons(port);
+    sin->sin_addr.s_addr = htonl(address);
+    status = 0;
+    goto end;
+  }
+
+
 
   if ( timeout_sec > 0 ) {
     timeout_sec = time(NULL) + timeout_sec;

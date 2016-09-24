@@ -29,7 +29,7 @@ CPPFLAGS += -Iinclude -Isrc
 
 #########################################
 
-SRCDIRS = $(addprefix src/,. corpc cothread dns ifaddrs hash nanopb ssl) 
+SRCDIRS += $(addprefix src/,. corpc cothread dns ifaddrs hash nanopb ssl) 
 
 ifeq ($(findstring androideabi,$(ARCH)),androideabi)
 SRCDIRS += $(wildcard src/android/*)
@@ -39,20 +39,19 @@ SRCDIRS += pg
 CFLAGS += -I/usr/include/postgresql -I/usr/local/include/postgresql
 endif
 
-HEADERS = $(wildcard include/cuttle/*.h include/*/*.h)
-
-SOURCES = $(foreach s,$(SRCDIRS),$(wildcard $(s)/*.c))
-INTERNAL_HEADERS = $(foreach s,$(SRCDIRS),$(wildcard src/$(s)/*.h))
+HEADERS += $(wildcard include/cuttle/*.h include/*/*.h)
+SOURCES += $(foreach s,$(SRCDIRS),$(wildcard $(s)/*.c))
+INTERNAL_HEADERS += $(foreach s,$(SRCDIRS),$(wildcard src/$(s)/*.h))
 
 
 
 #########################################
 
-MODULES  =  $(addsuffix .o,$(basename $(SOURCES)))
+MODULES  += $(addsuffix .o,$(basename $(SOURCES)))
 $(MODULES): $(HEADERS) $(INTERNAL_HEADERS)
 
 lib : $(LIB)($(MODULES))
-clean : ; $(RM) $(MODULES)
+clean : ; find -name '*.o' -delete 
 distclean: clean ; $(RM) $(LIB)
 
 
