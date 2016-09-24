@@ -43,7 +43,8 @@
 #define CO_YIELD                    0x04
 
 
-#define CF_TRACE(...) CF_DEBUG(__VA_ARGS__)
+#define CF_TRACE(...)
+  //  CF_DEBUG(__VA_ARGS__)
 
 
 #define co_current_time_ms()  cf_get_monotic_ms()
@@ -882,18 +883,28 @@ struct co_thread_lock_s {
   coroutine_t co;
 };
 
-static pthread_mutex_t co_thread_lock_global_mtx
-  = PTHREAD_MUTEX_INITIALIZER;
+static pthread_wait_t co_thread_lock_global_mtx
+  = PTHREAD_WAIT_INITIALIZER;
 
 
 static inline void co_thread_global_lock(void)
 {
-  pthread_mutex_lock(&co_thread_lock_global_mtx);
+  pthread_wait_lock(&co_thread_lock_global_mtx);
 }
 
 static inline void co_thread_global_unlock(void)
 {
-  pthread_mutex_unlock(&co_thread_lock_global_mtx);
+  pthread_wait_unlock(&co_thread_lock_global_mtx);
+}
+
+static inline int co_thread_global_wait(int tmo)
+{
+  return pthread_wait(&co_thread_lock_global_mtx, tmo);
+}
+
+static inline void co_thread_global_signal(void)
+{
+  pthread_wait_broadcast(&co_thread_lock_global_mtx);
 }
 
 static struct co_thread_lock_s * co_thread_check(co_thread_lock_t * objp)
@@ -905,13 +916,25 @@ static struct co_thread_lock_s * co_thread_check(co_thread_lock_t * objp)
     errno = EINVAL;
     raise(SIGINT);
   }
-  else if ( obj->co != co_current() ) {
-    CF_FATAL("BUG: obj->co=%p != co_current()=%p."
-        " Forgot to call co_thread_lock()?",
-        obj->co, co_current());
-    errno = EBUSY;
-    //raise(SIGINT);
-    obj = NULL;
+  else if ( cf_in_co_thread() ) {
+    if ( obj->co != co_current() ) {
+      CF_FATAL("BUG: obj->co=%p != co_current()=%p."
+          " Forgot to call co_thread_lock()?",
+          obj->co, co_current());
+      errno = EBUSY;
+      //raise(SIGINT);
+      obj = NULL;
+    }
+  }
+  else {
+    if ( obj->co != (coroutine_t)(pthread_self()) ) {
+      CF_FATAL("BUG: obj->co=%p != pthread_self=%ld."
+          " Forgot to call co_thread_lock()?",
+          obj->co, pthread_self());
+      errno = EBUSY;
+      //raise(SIGINT);
+      obj = NULL;
+    }
   }
 
   return obj;
@@ -988,32 +1011,43 @@ void co_thread_lock_destroy(co_thread_lock_t *objp)
 // must be globally locked
 static void co_thread_lock_internal(struct co_thread_lock_s * obj)
 {
-  struct cclist_node * node =
-      add_waiter(current_core,
-          &(struct io_waiter ) {
-                .co = co_current(),
-                .tmo = -1,
-                .mask = EPOLLIN
-              });
+  if ( !cf_in_co_thread() ) {
 
-  if ( !node ) {
-    CF_FATAL("add_waiter() fails");
-    exit(1);
+    while ( obj->co ) {
+      co_thread_global_wait(-1);
+    }
+    obj->co = (coroutine_t) (pthread_self());
+
   }
+  else {
 
-  epoll_queue(&obj->e, cclist_peek(node));
+    struct cclist_node * node =
+        add_waiter(current_core,
+            &(struct io_waiter ) {
+                  .co = co_current(),
+                  .tmo = -1,
+                  .mask = EPOLLIN
+                });
 
-  while ( obj->co ) {
-    co_thread_global_unlock();
+    if ( !node ) {
+      CF_FATAL("add_waiter() fails");
+      exit(1);
+    }
 
-    co_call(current_core->main);
+    epoll_queue(&obj->e, cclist_peek(node));
 
-    co_thread_global_lock();
+    while ( obj->co ) {
+      co_thread_global_unlock();
+
+      co_call(current_core->main);
+
+      co_thread_global_lock();
+    }
+    obj->co = co_current();
+
+    epoll_dequeue(&obj->e, cclist_peek(node));
+    remove_waiter(current_core, node);
   }
-  obj->co = co_current();
-
-  epoll_dequeue(&obj->e, cclist_peek(node));
-  remove_waiter(current_core, node);
 }
 
 // must be globally locked
@@ -1021,6 +1055,7 @@ static void co_thread_unlock_internal(struct co_thread_lock_s * obj)
 {
   obj->co = NULL;
   eventfd_write(obj->e.so, 1);
+  co_thread_global_signal();
 }
 
 bool co_thread_lock(co_thread_lock_t * objp)
@@ -1111,37 +1146,72 @@ int co_thread_wait(co_thread_lock_t * objp, int tmo)
 
   co_thread_global_lock();
 
-  if ( (obj = co_thread_check(objp)) ) {
+  if ( !cf_in_co_thread() ) {
 
-    node = add_waiter(current_core,
-        &(struct io_waiter ) {
-              .co = obj->co,
-              .tmo = tmo >= 0 ? co_current_time_ms() + tmo : -1,
-              .mask = EPOLLIN,
-              .flags = MTX_WAKEUP_WAITING
-            });
-
-    if ( !node ) {
-      CF_FATAL("add_waiter() fails");
-      exit(1);
+    if ( !(obj = *objp) ) {
+      CF_CRITICAL("NULL pointer passed");
+      errno = EINVAL;
     }
-
-    epoll_queue(&obj->e, iow = cclist_peek(node));
-
-    co_thread_unlock_internal(obj);
-
-    while ( !(status = ((iow->flags & MTX_WAKEUP_EVENT) != 0)) && (iow->tmo < 0 || co_current_time_ms() < iow->tmo) ) {
-      co_thread_global_unlock();
-
-        co_call(current_core->main);
-
-      co_thread_global_lock();
+    else if ( obj->co != (coroutine_t) (pthread_self()) ) {
+      CF_CRITICAL("Invalid call: obj->co != pthread_self()");
+      errno = EINVAL;
     }
+    else {
 
-    co_thread_lock_internal(obj);
+      struct io_waiter w = {
+        .tmo = tmo >= 0 ? co_current_time_ms() + tmo : -1,
+        .flags = MTX_WAKEUP_WAITING
+      };
 
-    epoll_dequeue(&obj->e, cclist_peek(node));
-    remove_waiter(current_core, node);
+      int64_t ct;
+
+      epoll_queue(&obj->e, &w);
+
+      co_thread_unlock_internal(obj);
+
+      while ( !(status = ((w.flags & MTX_WAKEUP_EVENT) != 0)) && (tmo < 0 || (ct = co_current_time_ms()) < w.tmo) ) {
+        co_thread_global_wait(tmo < 0 ? -1 : w.tmo - ct);
+      }
+
+      co_thread_lock_internal(obj);
+
+      epoll_dequeue(&obj->e, &w);
+    }
+  }
+  else {
+
+    if ( (obj = co_thread_check(objp)) ) {
+
+      node = add_waiter(current_core,
+          &(struct io_waiter ) {
+                .co = obj->co,
+                .tmo = tmo >= 0 ? co_current_time_ms() + tmo : -1,
+                .mask = EPOLLIN,
+                .flags = MTX_WAKEUP_WAITING
+              });
+
+      if ( !node ) {
+        CF_FATAL("add_waiter() fails");
+        exit(1);
+      }
+
+      epoll_queue(&obj->e, iow = cclist_peek(node));
+
+      co_thread_unlock_internal(obj);
+
+      while ( !(status = ((iow->flags & MTX_WAKEUP_EVENT) != 0)) && (iow->tmo < 0 || co_current_time_ms() < iow->tmo) ) {
+        co_thread_global_unlock();
+
+          co_call(current_core->main);
+
+        co_thread_global_lock();
+      }
+
+      co_thread_lock_internal(obj);
+
+      epoll_dequeue(&obj->e, cclist_peek(node));
+      remove_waiter(current_core, node);
+    }
   }
 
   co_thread_global_unlock();
