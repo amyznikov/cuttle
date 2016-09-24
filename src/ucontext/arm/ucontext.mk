@@ -1,23 +1,23 @@
-MODULE_DIR ?= $(CURDIR)
+SUBMODULE_DIR ?= $(CURDIR)
 
-MODULES  += $(addprefix $(MODULE_DIR)/,getcontext.o setcontext.o makecontext.o swapcontext.o) 
+MODULES  += $(addprefix $(SUBMODULE_DIR)/,getcontext.o setcontext.o makecontext.o swapcontext.o) 
 
 PTHREAD_GENERATE_MANGLE ?= -n "s/^.*@@@name@@@\([^@]*\)@@@value@@@[^0-9Xxa-fA-F-]*\([0-9Xxa-fA-F-][0-9Xxa-fA-F-]*\).*@@@end@@@.*\$$/\#define \1 \2/p"
 
-$(MODULE_DIR)/makecontext.o : $(MODULE_DIR)/makecontext.c
-	@echo "MODULE_DIR='$(MODULE_DIR)'" 
+$(SUBMODULE_DIR)/makecontext.o : $(SUBMODULE_DIR)/makecontext.c
+	@echo "SUBMODULE_DIR='$(SUBMODULE_DIR)'" 
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(MODULE_DIR)/getcontext.o: $(MODULE_DIR)/getcontext.S $(MODULE_DIR)/ucontext_i.h 
+$(SUBMODULE_DIR)/getcontext.o: $(SUBMODULE_DIR)/getcontext.S $(SUBMODULE_DIR)/ucontext_i.h 
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(MODULE_DIR)/setcontext.o: $(MODULE_DIR)/setcontext.S $(MODULE_DIR)/ucontext_i.h
+$(SUBMODULE_DIR)/setcontext.o: $(SUBMODULE_DIR)/setcontext.S $(SUBMODULE_DIR)/ucontext_i.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(MODULE_DIR)/swapcontext.o: $(MODULE_DIR)/swapcontext.S $(MODULE_DIR)/ucontext_i.h
+$(SUBMODULE_DIR)/swapcontext.o: $(SUBMODULE_DIR)/swapcontext.S $(SUBMODULE_DIR)/ucontext_i.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(MODULE_DIR)/ucontext_i.h: $(MODULE_DIR)/ucontext_i.sym
-	awk -f $(MODULE_DIR)/scripts/gen-as-const.awk $< \
+$(SUBMODULE_DIR)/ucontext_i.h: $(SUBMODULE_DIR)/ucontext_i.sym
+	awk -f $(SUBMODULE_DIR)/scripts/gen-as-const.awk $< \
 		| $(CC) $(CFLAGS) -x c - -S -o - \
 			| sed $(PTHREAD_GENERATE_MANGLE) > $@

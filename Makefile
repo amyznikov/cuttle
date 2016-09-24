@@ -29,19 +29,11 @@ CPPFLAGS += -Iinclude -Isrc
 
 #########################################
 
-SRCDIRS += $(addprefix src/,. corpc cothread dns ifaddrs hash nanopb ssl) 
-
-ifeq ($(findstring androideabi,$(ARCH)),androideabi)
-SRCDIRS += $(wildcard src/android/*)
-CFLAGS += $(addprefix -I,$(wildcard src/android/*))
-else 
-SRCDIRS += pg
-CFLAGS += -I/usr/include/postgresql -I/usr/local/include/postgresql
-endif
+SUBDIRS += $(addprefix src/,. cothread corpc dns ifaddrs hash nanopb ssl) 
+SOURCES += $(foreach s,$(SUBDIRS),$(wildcard $(s)/*.c))
 
 HEADERS += $(wildcard include/cuttle/*.h include/*/*.h)
-SOURCES += $(foreach s,$(SRCDIRS),$(wildcard $(s)/*.c))
-INTERNAL_HEADERS += $(foreach s,$(SRCDIRS),$(wildcard src/$(s)/*.h))
+INTERNAL_HEADERS += $(foreach s,$(SUBDIRS),$(wildcard src/$(s)/*.h))
 
 
 
@@ -85,7 +77,7 @@ uninstall:
 
 test:
 	@echo "ARCH='$(ARCH)'"
-	@echo "SRCDIRS='$(SRCDIRS)'"
+	@echo "SUBDIRS='$(SUBDIRS)'"
 	@echo "NDK_ROOT=${NDK_ROOT}"
 	@echo "CC=$(CC)"
 	@echo "CFLAGS=$(CFLAGS)"

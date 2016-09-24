@@ -11,13 +11,15 @@ libdir  = $(prefix)/lib
 pcdir   = $(libdir)/pkgconfig
 pc      = $(pcdir)/$(LIBNAME).pc
 
-
-
-SYSROOT=$(NDK_ROOT)/platforms/${NDK_PLATFORM}/arch-arm
-DESTDIR=$(SYSROOT)
+SYSROOT ?= $(NDK_ROOT)/platforms/${NDK_PLATFORM}/arch-arm
+DESTDIR ?= $(SYSROOT)
 
 CC = $(shell ndk-which gcc) -std=gnu99 --sysroot="$(SYSROOT)"
 CFLAGS = -march=armv7-a -Wall -Wextra -Wno-missing-field-initializers -O3 -g  -D__ANDROID__=1 
 
-MODULE_DIR = src/ucontext/arm
-include $(MODULE_DIR)/ucontext.mk
+SRCDIRS += $(wildcard src/android/*)
+CFLAGS += $(addprefix -I,$(wildcard src/android/*))
+
+
+SUBMODULE_DIR = src/ucontext/arm
+include $(SUBMODULE_DIR)/ucontext.mk
