@@ -17,9 +17,9 @@
 
 #define NB_RECEIVERS  10
 
-static int event_sender_finished = 0;
-static int event_receiver_running = 0;
-static int event_receiver_finished = 0;
+static int sender_finished = 0;
+static int receiver_running = 0;
+static int receiver_finished = 0;
 static int client_main_finished = 0;
 
 static co_thread_lock_t thread_lock = CO_THREAD_LOCK_INITIALIZER;
@@ -30,7 +30,7 @@ static void set_event(int * event)
 {
   co_thread_lock(&thread_lock);
   ++*event;
-  co_thread_signal(&thread_lock);
+  co_thread_broadcast(&thread_lock);
   co_thread_unlock(&thread_lock);
 }
 
@@ -78,7 +78,7 @@ end:
 
   cleanup_sm_timer_event(&event);
 
-  set_event(&event_sender_finished);
+  set_event(&sender_finished);
 
   CF_DEBUG("FINISHED");
 }
@@ -90,7 +90,7 @@ static void receive_timer_events_from_server(corpc_stream * st)
   sm_timer_event e;
   CF_DEBUG("ENTER");
 
-  set_event(&event_receiver_running);
+  set_event(&receiver_running);
 
 
   init_sm_timer_event(&e, NULL);
@@ -104,7 +104,7 @@ static void receive_timer_events_from_server(corpc_stream * st)
 
   cleanup_sm_timer_event(&e);
 
-  set_event(&event_receiver_finished);
+  set_event(&receiver_finished);
 
   CF_DEBUG("LEAVE");
 }
@@ -191,7 +191,7 @@ static void client_main(void * arg )
   CF_DEBUG("Started");
 
 
-  channel = corpc_channel_new(&(struct corpc_channel_opts ) {
+  channel = corpc_channel_open(&(struct corpc_channel_open_args ) {
         .connect_address = "localhost",
         .connect_port = 6008,
         .services = client_services,
@@ -200,17 +200,9 @@ static void client_main(void * arg )
       });
 
   if ( !channel ) {
-    CF_FATAL("corpc_channel_new() fails");
+    CF_FATAL("corpc_channel_open() fails: %s", strerror(errno));
     goto end;
   }
-
-  CF_DEBUG("channel->state = %s", corpc_channel_state_string(corpc_get_channel_state(channel)));
-
-  if ( !corpc_channel_open(channel) ) {
-    CF_FATAL("corpc_open_channel() fails: %s", strerror(errno));
-    goto end;
-  }
-
 
   if ( !co_schedule(send_timer_events_to_server, channel, 1024 * 1024) ) {
     CF_FATAL("co_schedule(start_timer_events) fails: %s", strerror(errno));
@@ -226,16 +218,22 @@ static void client_main(void * arg )
 
 
 
-  wait_event(&event_sender_finished, 1);
+  CF_DEBUG("C wait_event(&sender_finished, 1)");
+  wait_event(&sender_finished, 1);
+  CF_DEBUG("R wait_event(&sender_finished, 1)");
 
-  if ( event_receiver_running ) {
-    wait_event(&event_receiver_finished, event_receiver_running);
+  if ( receiver_running ) {
+    CF_DEBUG("C wait_event(&receiver_finished, receiver_running=%d)", receiver_running);
+    wait_event(&receiver_finished, receiver_running);
+    CF_DEBUG("R wait_event(&receiver_finished, receiver_running=%d)", receiver_running);
   }
 
 end:
 
 
+  CF_DEBUG("C corpc_channel_close(&channel)");
   corpc_channel_close(&channel);
+  CF_DEBUG("R corpc_channel_close(&channel)");
 
   set_event(&client_main_finished);
   CF_DEBUG("Finished");
@@ -328,9 +326,9 @@ int main(int argc, char *argv[])
     goto end;
   }
 
-  while ( !client_main_finished ) {
-    usleep(100 * 1000);
-  }
+  CF_DEBUG("C wait_event(&client_main_finished, 1)");
+  wait_event(&client_main_finished, 1);
+  CF_DEBUG("R wait_event(&client_main_finished, 1)");
 
 end:
 

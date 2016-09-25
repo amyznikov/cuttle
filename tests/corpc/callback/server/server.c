@@ -7,13 +7,10 @@
 
 #include <stdio.h>
 #include <unistd.h>
-
 #include <cuttle/debug.h>
-#include <cuttle/sockopt.h>
 #include <cuttle/ssl/init-ssl.h>
 #include <cuttle/ssl/x509.h>
-#include <cuttle/corpc/corpc-server.h>
-
+#include <cuttle/corpc/server.h>
 #include "../proto/smaster.h"
 
 typedef

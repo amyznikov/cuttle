@@ -34,6 +34,14 @@ union sockaddr_type {
 } sockaddr_type;
 
 
+typedef
+struct so_keepalive_opts {
+  bool enable;
+  int keepidle;
+  int keepintvl;
+  int keepcnt;
+} so_keepalive_opts;
+
 int so_get_error(int so);
 
 socklen_t so_get_addrlen(const struct sockaddr * addr);

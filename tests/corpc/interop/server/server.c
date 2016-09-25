@@ -5,14 +5,13 @@
  *      Author: amyznikov
  */
 
+#include <cuttle/corpc/server.h>
 #include <stdio.h>
 #include <unistd.h>
 
 #include <cuttle/debug.h>
 #include <cuttle/sockopt.h>
 #include <cuttle/ssl/init-ssl.h>
-#include <cuttle/corpc/corpc-server.h>
-
 #include "../proto/auth.h"
 #include "../proto/mail.h"
 

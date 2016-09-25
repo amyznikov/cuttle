@@ -69,20 +69,28 @@ const char * corpc_stream_state_string(
 
 
 
-
-
-
-
 typedef
-struct corpc_channel_opts {
+struct corpc_channel_open_args {
+
   const char * connect_address;
   uint16_t connect_port;
   int connect_tmout_ms;
+
   SSL_CTX * ssl_ctx;
-  const struct corpc_service ** services;
+
+  const struct corpc_service **
+    services;
+
+  struct so_keepalive_opts
+    keep_alive;
+
   bool (*onconnect)(const corpc_channel * channel);
-  void (*onstatechanged)(corpc_channel * channel, enum corpc_channel_state, int reason);
-} corpc_channel_opts;
+
+  void (*onstatechanged)(corpc_channel * channel,
+      enum corpc_channel_state,
+      int reason);
+
+} corpc_channel_open_args;
 
 
 
@@ -96,9 +104,7 @@ struct corpc_open_stream_opts {
 } corpc_open_stream_opts;
 
 
-corpc_channel * corpc_channel_new(const struct corpc_channel_opts * opts);
-
-bool corpc_channel_open(corpc_channel * channel);
+corpc_channel * corpc_channel_open(const struct corpc_channel_open_args * args);
 void corpc_channel_close(corpc_channel ** channel);
 
 void corpc_channel_addref(corpc_channel * channel);

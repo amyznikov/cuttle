@@ -19,12 +19,20 @@ extern "C" {
 
 typedef
 struct corpc_listening_port_opts {
+
   sockaddr_type listen_address;
   SSL_CTX * ssl_ctx;
-  const struct corpc_service ** services;
+
+  const struct corpc_service **
+    services;
+
+  struct so_keepalive_opts
+    keep_alive;
+
   bool (*onaccept)(const corpc_channel * channel);
   void (*onaccepted)(corpc_channel * channel);
   void (*ondisconnected)(corpc_channel * channel);
+
 } corpc_listening_port_opts;
 
 

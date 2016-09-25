@@ -1,5 +1,5 @@
 /*
- * corpc-server.h
+ * cuttle/corpc/server.h
  *
  *  Created on: Sep 10, 2016
  *      Author: amyznikov

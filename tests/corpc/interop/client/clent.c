@@ -145,23 +145,24 @@ static void client_main(void * arg )
 
   CF_DEBUG("Started");
 
-
-  channel = corpc_channel_new(&(struct corpc_channel_opts ) {
+  channel = corpc_channel_open(&(struct corpc_channel_open_args ) {
         .connect_address = "localhost",
         .connect_port = 6008,
+
         .ssl_ctx = NULL,
+
         .onstatechanged = on_channel_state_changed,
+
+        .keep_alive = {
+          .enable = true,
+          .keepidle = 5,
+          .keepintvl = 3,
+          .keepcnt = 5
+        }
       });
 
   if ( !channel ) {
-    CF_FATAL("corpc_channel_new() fails");
-    goto end;
-  }
-
-  CF_DEBUG("channel->state = %s", corpc_channel_state_string(corpc_get_channel_state(channel)));
-
-  if ( !corpc_channel_open(channel) ) {
-    CF_FATAL("corpc_open_channel() fails: %s", strerror(errno));
+    CF_FATAL("corpc_channel_open() fails");
     goto end;
   }
 
@@ -179,7 +180,7 @@ static void client_main(void * arg )
 end:
 
 
-  CF_DEBUG("C corpc_channel_relase()");
+  CF_DEBUG("C corpc_channel_close()");
   corpc_channel_close(&channel);
 
   CF_DEBUG("Finished");

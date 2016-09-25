@@ -6,8 +6,8 @@
  */
 
 
+#include <cuttle/corpc/server.h>
 #include <cuttle/debug.h>
-#include <cuttle/corpc/corpc-server.h>
 #include <cuttle/cothread/ssl-server.h>
 #include "corpc-listening-port.h"
 

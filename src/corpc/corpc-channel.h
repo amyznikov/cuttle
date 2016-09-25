@@ -56,6 +56,7 @@ struct corpc_channel {
   bool write_lock;
   bool state_lock;
   corpc_channel_state state;
+
   void (*onstatechanged)(struct corpc_channel * channel,
       enum corpc_channel_state,
       int reason);
@@ -70,8 +71,11 @@ struct corpc_channel {
     int connect_tmout_ms;
   } connect_opts;
 
+  struct so_keepalive_opts
+    keep_alive;
 };
 
+corpc_channel * corpc_channel_new(const struct corpc_channel_open_args * opts);
 
 bool corpc_channel_accept(corpc_listening_port * sslp, co_ssl_socket * ssl_sock);
 void corpc_channel_addref(corpc_channel * chp);
