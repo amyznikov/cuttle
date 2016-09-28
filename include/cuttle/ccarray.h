@@ -32,6 +32,7 @@ struct ccarray_t {
 #define ccarray_item(c,pos)     (((ccarray_item_type(c))(c)->items)+(pos))
 
 
+#define CCARRAY_INITIALIZER     {.items=NULL,.capacity=0,.size = 0,.item_size=0}
 
 typedef int (*cmpfunc_t)(const void * v1, const void * v2);
 
@@ -103,6 +104,11 @@ static inline size_t ccarray_resize(ccarray_t * c, size_t size)
 static inline size_t ccarray_size(const ccarray_t * c)
 {
   return c ? c->size : 0;
+}
+
+static inline size_t ccarray_item_size(const ccarray_t * c)
+{
+  return c->item_size;
 }
 
 static inline size_t ccarray_capacity(const ccarray_t * c)

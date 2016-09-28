@@ -32,7 +32,7 @@ CPPFLAGS += -Iinclude -Isrc
 SUBDIRS += $(addprefix src/,. cothread corpc dns ifaddrs hash nanopb ssl) 
 SOURCES += $(foreach s,$(SUBDIRS),$(wildcard $(s)/*.c))
 
-HEADERS += $(wildcard include/cuttle/*.h include/*/*.h)
+HEADERS += $(wildcard include/cuttle/*.h include/cuttle/*/*.h)
 INTERNAL_HEADERS += $(foreach s,$(SUBDIRS),$(wildcard src/$(s)/*.h))
 
 

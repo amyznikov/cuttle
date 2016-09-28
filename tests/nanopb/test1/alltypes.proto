@@ -1,0 +1,65 @@
+syntax = "proto2";
+// package name placeholder
+
+message all_types {
+	required int32 req_int32 = 1;
+	required int64 req_int64 = 2;
+	required float req_float = 3;
+	required double req_double = 4;
+	required string req_string = 5;
+	required bytes req_bytes = 6;
+	required fixed32 req_fixed32 = 7;
+	required fixed64 req_fixed64 = 8;
+	required sfixed32 req_sfixed32 = 9;
+	required sfixed64 req_sfixed64 = 10;
+	required bool req_bool = 11;
+
+	optional int32 opt_int32 = 12;
+	optional int64 opt_int64 = 13;
+	optional float opt_float = 14;
+	optional double opt_double = 15;
+	optional string opt_string = 16;
+	optional bytes opt_bytes = 17;
+	optional fixed32 opt_fixed32 = 18;
+	optional fixed64 opt_fixed64 = 19;
+	optional sfixed32 opt_sfixed32 = 20;
+	optional sfixed64 opt_sfixed64 = 21;
+	optional bool opt_bool = 22;
+
+	repeated int32 rep_int32 = 23;
+	repeated int64 rep_int64 = 24;
+	repeated float rep_float = 25;
+	repeated double rep_double = 26;
+	repeated string rep_string = 27;
+	repeated bytes rep_bytes = 28;
+	repeated fixed32 rep_fixed32 = 29;
+	repeated fixed64 rep_fixed64 = 30;
+	repeated sfixed32 rep_sfixed32 = 31;
+	repeated sfixed64 rep_sfixed64 = 32;
+	repeated bool rep_bool = 33;
+
+	oneof msg {
+		int32 xint32 = 34;
+		int64 xint64 = 35;
+		float xfloat = 36;
+		double xdouble = 37;
+		string xstring = 38;
+		bytes xbytes = 39;
+		fixed32 xfixed32 = 40;
+		fixed64 xfixed64 = 41;
+		sfixed32 xsfixed32 = 42;
+		sfixed64 xsfixed64 = 43;
+		bool xbool = 44;
+	}
+
+
+	message nested_message {
+		optional int32 x = 1;
+		optional string s = 2;
+		repeated double z = 3;
+	}
+
+	optional nested_message nested_msg = 45;
+
+
+}

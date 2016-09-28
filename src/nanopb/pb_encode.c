@@ -6,6 +6,7 @@
 //#include <cuttle/nanopb/pb.h>
 #include <cuttle/nanopb/pb_encode.h>
 #include <cuttle/nanopb/pb_common.h>
+#include <cuttle/debug.h>
 
 /* Use the GCC warn_unused_result attribute to check that all return values
  * are propagated correctly. On other compilers and gcc before 3.4.0 just
@@ -640,14 +641,17 @@ static bool checkreturn pb_enc_bytes(pb_ostream_t *stream, const pb_field_t *fie
 {
     const pb_bytes_array_t *bytes = NULL;
 
-    if (PB_LTYPE(field->type) == PB_LTYPE_FIXED_LENGTH_BYTES)
+    if (PB_LTYPE(field->type) == PB_LTYPE_FIXED_LENGTH_BYTES) {
+      CF_DEBUG("C pb_encode_string");
         return pb_encode_string(stream, (const pb_byte_t*)src, field->data_size);
+    }
 
     bytes = (const pb_bytes_array_t*)src;
 
     if (src == NULL)
     {
         /* Treat null pointer as an empty bytes field */
+      CF_DEBUG("C pb_encode_string");
         return pb_encode_string(stream, NULL, 0);
     }
 
@@ -657,6 +661,7 @@ static bool checkreturn pb_enc_bytes(pb_ostream_t *stream, const pb_field_t *fie
         PB_RETURN_ERROR(stream, "bytes size exceeded");
     }
 
+    CF_DEBUG("C pb_encode_string");
     return pb_encode_string(stream, bytes->bytes, bytes->size);
 }
 
