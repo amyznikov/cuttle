@@ -180,6 +180,10 @@ public:
       printer->Print("\n");
     }
 
+    if ( generate_case_enums_string_functions(file, printer) ) {
+      printer->Print("\n");
+    }
+
     if ( file->message_type_count() > 0 ) {
       generate_pb_fields(file, printer);
       printer->Print("\n");
@@ -241,7 +245,7 @@ public:
       printer->Outdent();
       printer->Print(vars, "} $enum_name$;\n\n");
 
-      printer->Print(vars,"const char * cf_$enum_name$_name(enum $enum_name$ obj);\n\n");
+      printer->Print(vars,"const char * cf_$enum_name$_name(\n  enum $enum_name$ obj);\n\n");
     }
 
     return enums_generated;
@@ -273,7 +277,7 @@ public:
       }
       printer->Outdent();
       printer->Print("}\n");
-      printer->Print(vars, "return \"invalid-$enum_name$\";\n");
+      printer->Print(vars, "return \"unknown:$enum_name$\";\n");
       printer->Outdent();
       printer->Print("}\n\n");
     }
@@ -327,7 +331,7 @@ public:
         printer->Print("} $enum_name$;\n\n", "enum_name", enum_name);
 
         printer->Print("const char * cf_$enum_name$_name(\n"
-            "  enum $enum_name$ obj);\n\n",
+            "  enum $enum_name$ tag);\n\n",
             "enum_name", enum_name);
       }
     }
@@ -337,6 +341,45 @@ public:
   int generate_case_enums_string_functions(const FileDescriptor * file, Printer * printer)
   {
     int enums_generated = 0;
+    const Descriptor * type;
+    const OneofDescriptor * oneof;
+    const FieldDescriptor * field;
+    map<string, string> vars;
+
+    for ( int j = 0, m = file->message_type_count(); j < m; ++j ) {
+
+      type = file->message_type(j);
+
+      for ( int i = 0, n = type->oneof_decl_count(); i < n; ++i, ++enums_generated ) {
+
+
+        oneof = type->oneof_decl(i);
+        const string enum_name = oneof_enum_type_name(oneof);
+
+        vars["enum_name"] = enum_name;
+
+        printer->Print(vars, "const char * cf_$enum_name$_name(enum $enum_name$ tag) {\n");
+        printer->Indent();
+        printer->Print("switch( tag ) {\n");
+        printer->Indent();
+
+        vars["member_name"] = oneof_enum_member_name(oneof, NULL);
+        printer->Print(vars, "case $member_name$: return \"nothing\";\n");
+
+        for ( int k = 0, l = oneof->field_count(); k < l; ++k ) {
+          field = oneof->field(k);
+          vars["member_name"] = oneof_enum_member_name(oneof, field);
+          vars["name"] = field->name();
+          printer->Print(vars, "case $member_name$: return \"$name$\";\n");
+        }
+
+        printer->Outdent();
+        printer->Print("}\n");
+        printer->Print(vars, "return \"unknown:$enum_name$\";\n");
+        printer->Outdent();
+        printer->Print("}\n\n");
+      }
+    }
     return enums_generated;
   }
 
