@@ -29,7 +29,7 @@ CPPFLAGS += -Iinclude -Isrc
 
 #########################################
 
-SUBDIRS += $(addprefix src/,. cothread corpc dns ifaddrs hash nanopb ssl) 
+SUBDIRS += $(addprefix src/,. cothread corpc dns ifaddrs hash nanopb pb ssl) 
 SOURCES += $(foreach s,$(SUBDIRS),$(wildcard $(s)/*.c))
 
 HEADERS += $(wildcard include/cuttle/*.h include/cuttle/*/*.h)

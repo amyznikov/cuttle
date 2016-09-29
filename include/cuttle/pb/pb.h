@@ -1,5 +1,5 @@
 /*
- * cf_pb.h
+ * cuttle/pb/pb.h
  *
  *  Created on: Sep 26, 2016
  *      Author: amyznikov
@@ -7,14 +7,13 @@
 
 //#pragma once
 
-#ifndef TESTS_NANOPB_TEST1_CF_PB_H_
-#define TESTS_NANOPB_TEST1_CF_PB_H_
+#ifndef __cuttle_pb_h__
+#define __cuttle_pb_h__
 
-#include <cuttle/debug.h>
+#include <cuttle/membuf.h>
+#include <cuttle/ccarray.h>
 #include <cuttle/nanopb/pb_encode.h>
 #include <cuttle/nanopb/pb_decode.h>
-#include <cuttle/ccarray.h>
-#include <cuttle/membuf.h>
 
 
 #ifdef __cplusplus
@@ -76,8 +75,12 @@ bool cf_pb_get_encoded_size(size_t * size, const cf_pb_field_t fields[], const v
 bool cf_pb_encode(pb_ostream_t * ostream, const cf_pb_field_t fields[], const void * msg);
 bool cf_pb_decode(pb_istream_t * istream, const cf_pb_field_t fields[], void * msg);
 
+size_t cf_pb_pack(const void * message, const cf_pb_field_t fields[], void ** buf);
+bool cf_pb_unpack(const void * buf, size_t size, const cf_pb_field_t fields[], void * message);
+
+
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* TESTS_NANOPB_TEST1_CF_PB_H_ */
+#endif /* __cuttle_pb_h__ */

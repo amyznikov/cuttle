@@ -8,7 +8,7 @@
 
 SHELL = /bin/bash
 
-TARGET = protoc-gen-corpc
+TARGET = corpc-pb-gen
 
 all: $(TARGET)
 

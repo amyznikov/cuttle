@@ -7,52 +7,13 @@
 
 #define _GNU_SOURCE
 
+#include <math.h>
+#include <stdio.h>
 #include <cuttle/debug.h>
 #include <cuttle/hexbits.h>
-#include <math.h>
-#include "cf_pb.h"
+#include <cuttle/pb/pb.h>
 
 
-static size_t cf_pb_pack(const void * message, const cf_pb_field_t fields[], void ** buf)
-{
-  size_t size = 0;
-
-  *buf = NULL;
-
-  if ( !cf_pb_get_encoded_size(&size, fields, message) ) {
-    CF_FATAL("cf_pb_get_encoded_size() fails");
-  }
-  else if ( !(*buf = malloc(size)) ) {
-    CF_FATAL("malloc(buf) fails: %s", strerror(errno));
-    size = 0;
-  }
-  else {
-    pb_ostream_t stream = pb_ostream_from_buffer(*buf, size);
-    if ( cf_pb_encode(&stream, fields, message) ) {
-      size = stream.bytes_written;
-    }
-    else {
-      CF_FATAL("pb_encode() fails");
-      size = 0;
-    }
-  }
-
-  if ( !size && *buf ) {
-    free(*buf), *buf = NULL;
-  }
-
-  return size;
-}
-
-static bool cf_pb_unpack(const void * buf, size_t size, const cf_pb_field_t fields[], void * message)
-{
-  pb_istream_t stream = pb_istream_from_buffer(buf, size);
-  if ( !cf_pb_decode(&stream, fields, message) ) {
-    CF_FATAL("pb_decode() fails: %s", PB_GET_ERROR(&stream));
-    return false;
-  }
-  return true;
-}
 
 
 typedef
@@ -292,3 +253,12 @@ end:
 
   return 0;
 }
+
+
+/*
+ * size_t cf_pb_pack_all_types(const struct all_types * all_types, void ** buf)
+{
+  return cf_pb_pack(all_types, all_types_fields, buf);
+}
+ *
+ */

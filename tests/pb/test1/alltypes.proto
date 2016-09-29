@@ -1,6 +1,13 @@
 syntax = "proto2";
 // package name placeholder
 
+enum event_type {
+	none = 0;
+	mouse = 1;
+	keyboard = 2;
+	timer = 3;
+}
+
 message all_types {
 	required int32 req_int32 = 1;
 	required int64 req_int64 = 2;
