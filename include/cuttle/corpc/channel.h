@@ -126,8 +126,8 @@ ssize_t corpc_stream_read(struct corpc_stream * st, void ** out);
 bool corpc_stream_write(struct corpc_stream * st, const void * data, size_t size);
 
 
-bool corpc_stream_read_msg(struct corpc_stream * st, bool (*unpack)(void * msg, const void * data, size_t size), void * appmsg);
-bool corpc_stream_write_msg(struct corpc_stream * st, ssize_t (*pack)(const void * appmsg, void ** data), const void * appmsg);
+bool corpc_stream_read_msg(struct corpc_stream * st, bool (*unpack)(void * obj, const void * data, size_t size), void * appmsg);
+bool corpc_stream_write_msg(struct corpc_stream * st, size_t (*pack)(const void * obj, void ** data), const void * appmsg);
 
 enum corpc_stream_state corpc_get_stream_state(const corpc_stream * stream);
 

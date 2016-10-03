@@ -1271,10 +1271,10 @@ bool corpc_stream_write(struct corpc_stream * st, const void * data, size_t size
   return send_data(st, data, size);
 }
 
-bool corpc_stream_write_msg(struct corpc_stream * st, ssize_t (*pack)(const void *, void **), const void * appmsg)
+bool corpc_stream_write_msg(struct corpc_stream * st, size_t (*pack)(const void *, void **), const void * appmsg)
 {
   void * data = NULL;
-  ssize_t size;
+  size_t size;
   bool fok = false;
   if ( (size = pack(appmsg, &data)) > 0 ) {
     fok = send_data(st, data, size);

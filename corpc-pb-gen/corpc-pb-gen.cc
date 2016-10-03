@@ -21,45 +21,349 @@ using namespace google::protobuf::io;
 using namespace google::protobuf::compiler;
 
 
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+class CF_Generator_Base {
+  //GOOGLE_DISALLOW_EVIL_CONSTRUCTORS(CF_Generator_Base);
+
+protected:
+
+  typedef map<string,string>
+    smap;
+
+  typedef map<string,string>
+    optsmap;
+
+  optsmap opts;
+
+protected:
+
+  bool parse_opts(const string & text, string * status)
+  {
+    (void)(status);
+
+    vector<string> parts;
+
+    split(text, ",", &parts);
+
+    for ( unsigned i = 0; i < parts.size(); i++ ) {
+      const string::size_type equals_pos = parts[i].find_first_of('=');
+      if ( equals_pos == string::npos ) {
+        opts[parts[i]] = "y";
+      }
+      else {
+        opts[parts[i].substr(0, equals_pos)] = parts[i].substr(equals_pos + 1);
+      }
+    }
+
+    //    for (optsmap::const_iterator ii = opts->begin(); ii!= opts->end(); ++ii) {
+    //      // check each option syntax here
+    //    }
+
+    return true;
+  }
+
+
+
+
+
+
+
+
+
+  template<typename _OI>
+  static inline void split_to_iterator(const string & full, const char delim[], _OI & output)
+  {
+    // Optimize the common case where delim is a single character.
+    if ( delim[0] != '\0' && delim[1] == '\0' ) {
+      char c = delim[0];
+      const char * p = full.data();
+      const char * end = p + full.size();
+      while ( p != end ) {
+        if ( *p == c ) {
+          ++p;
+        }
+        else {
+          const char * start = p;
+          while ( ++p != end && *p != c )
+            ;
+          *output++ = string(start, p - start);
+        }
+      }
+    }
+    else {
+      string::size_type begin_index, end_index;
+      begin_index = full.find_first_not_of(delim);
+      while ( begin_index != string::npos ) {
+        end_index = full.find_first_of(delim, begin_index);
+        if ( end_index == string::npos ) {
+          *output++ = full.substr(begin_index);
+          return;
+        }
+        *output++ = full.substr(begin_index, (end_index - begin_index));
+        begin_index = full.find_first_not_of(delim, end_index);
+      }
+    }
+  }
+
+  static void split(const string & full, const char* delim, vector<string>* result)
+  {
+    back_insert_iterator<vector<string> > output(*result);
+    split_to_iterator(full, delim, output);
+  }
+
+  static bool has_suffix(const string & str, const string & suffix)
+  {
+    return str.size() >= suffix.size() && str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+  }
+
+  static string strip_suffix(const string& str, const string& suffix)
+  {
+    return has_suffix(str, suffix) ? str.substr(0, str.size() - suffix.size()) : str;
+  }
+
+  static string strip_proto_suffix(const string & fname)
+  {
+    return has_suffix(fname, ".protodevel") ? strip_suffix(fname, ".protodevel") : strip_suffix(fname, ".proto");
+  }
+
+  static string t2s(int x)
+  {
+    char s[16] = "";
+    sprintf(s, "%2d", x);
+    return s;
+  }
+
+  template<class T>
+  static string name(const T * t)
+  {
+    const string name = t->name();
+    vector<string> pieces;
+    string rv = "";
+
+    split(name, ".", &pieces);
+    for ( size_t i = 0; i < pieces.size(); i++ ) {
+      if ( !pieces[i].empty() ) {
+        if ( !rv.empty() ) {
+          rv += "_";
+        }
+        rv += pieces[i];
+      }
+    }
+    return rv;
+  }
+
+  template<class T>
+  string full_name(const T * t)
+  {
+    const string fullname = t->full_name();
+    vector<string> pieces;
+    string rv = "";
+
+    split(fullname, ".", &pieces);
+    for ( size_t i = 0, n = pieces.size(); i < n; ++i ) {
+      if ( !pieces[i].empty() ) {
+        if ( !rv.empty() ) {
+          rv += "_";
+        }
+        rv += pieces[i];
+      }
+    }
+    return rv;
+  }
+
+
+  // Convert a file name into a valid identifier.
+  static string file_id(const string & filename)
+  {
+    string s;
+    for ( size_t i = 0; i < filename.size(); i++ ) {
+      s.push_back(isalnum(filename[i]) ? filename[i] : '_');
+    }
+    return s;
+  }
+
+  static string basename(const string & filename)
+  {
+    return strip_proto_suffix(filename);
+  }
+
+  static string basename(const FileDescriptor * file)
+  {
+    return strip_proto_suffix(file->name());
+  }
+
+  static string pb_h_filename(const string & basename)
+  {
+    return basename + ".pb.h";
+  }
+
+  static string pb_h_filename(const FileDescriptor * file)
+  {
+    return pb_h_filename(basename(file));
+  }
+
+  static string pb_c_filename(const string & basename)
+  {
+    return basename + ".pb.c";
+  }
+
+  static string pb_c_filename(const FileDescriptor * file)
+  {
+    return pb_c_filename(basename(file));
+  }
+
+  static string corpc_h_filename(const FileDescriptor * file)
+  {
+    return basename(file) + ".corpc.h";
+  }
+
+  static string corpc_c_filename(const FileDescriptor * file)
+  {
+    return basename(file) + ".corpc.c";
+  }
+
+
+  string field_name(const FieldDescriptor * field)
+  {
+    return name(field);
+  }
+
+  string enum_type_name(const EnumDescriptor * enum_type)
+  {
+    return full_name(enum_type);
+  }
+
+  string enum_member_name(const EnumValueDescriptor * enum_member)
+  {
+    return enum_member->type()->name() + "_" + enum_member->name();
+  }
+
+  string cfpbtype(const FieldDescriptor * field)
+  {
+    switch ( field->type() ) {
+    case FieldDescriptor::TYPE_INT32    :    // int32, varint on the wire
+      return "INT32   ";
+    case FieldDescriptor::TYPE_SINT32   :    // int32, ZigZag-encoded varint on the wire
+      return "INT32   ";
+    case FieldDescriptor::TYPE_SFIXED32 :    // int32, exactly four bytes on the wire
+      return "SFIXED32";
+    case FieldDescriptor::TYPE_UINT32   :    // uint32, varint on the wire
+      return "UINT32  ";
+    case FieldDescriptor::TYPE_FIXED32  :    // uint32, exactly four bytes on the wire.
+      return "FIXED32 ";
+
+    case FieldDescriptor::TYPE_INT64    :    // int64, varint on the wire.
+      return "INT64   ";
+    case FieldDescriptor::TYPE_SINT64   :    // int64, ZigZag-encoded varint on the wire
+      return "INT64   ";
+    case FieldDescriptor::TYPE_SFIXED64 :    // int64, exactly eight bytes on the wire
+      return "SFIXED64";
+    case FieldDescriptor::TYPE_UINT64   :    // uint64, varint on the wire.
+      return "UINT64  ";
+    case FieldDescriptor::TYPE_FIXED64  :    // uint64, exactly eight bytes on the wire.
+      return "FIXED64 ";
+
+    case FieldDescriptor::TYPE_BOOL     :    // bool, varint on the wire.
+      return "BOOL    ";
+
+    case FieldDescriptor::TYPE_DOUBLE   :    // double, exactly eight bytes on the wire.
+      return "DOUBLE  ";
+
+    case FieldDescriptor::TYPE_FLOAT    :    // float, exactly four bytes on the wire.
+      return "FLOAT   ";
+
+    case FieldDescriptor::TYPE_ENUM     :    // Enum, varint on the wire
+      return "ENUM    ";
+
+    case FieldDescriptor::TYPE_STRING   :
+      return "STRING  ";
+
+    case FieldDescriptor::TYPE_BYTES    :
+      return "BYTES   ";
+
+    case FieldDescriptor::TYPE_GROUP :
+    case FieldDescriptor::TYPE_MESSAGE :
+      return "MESSAGE ";
+
+    default:
+        break;
+    }
+
+    return "BUG-HERE";
+  }
+
+  string cfctype(const FieldDescriptor * field)
+  {
+    switch ( field->type() ) {
+      case FieldDescriptor::TYPE_DOUBLE :    // double, exactly eight bytes on the wire.
+        return "double";
+      case FieldDescriptor::TYPE_FLOAT :    // float, exactly four bytes on the wire.
+        return "float";
+      case FieldDescriptor::TYPE_INT32 :    // int32, varint on the wire
+      case FieldDescriptor::TYPE_SFIXED32 :    // int32, exactly four bytes on the wire
+      case FieldDescriptor::TYPE_SINT32 :    // int32, ZigZag-encoded varint on the wire
+        return "int32_t";
+      case FieldDescriptor::TYPE_UINT32 :    // uint32, varint on the wire
+      case FieldDescriptor::TYPE_FIXED32 :    // uint32, exactly four bytes on the wire.
+        return "uint32_t";
+      case FieldDescriptor::TYPE_INT64 :    // int64, varint on the wire.
+      case FieldDescriptor::TYPE_SFIXED64 :    // int64, exactly eight bytes on the wire
+      case FieldDescriptor::TYPE_SINT64 :    // int64, ZigZag-encoded varint on the wire
+        return "int64_t";
+      case FieldDescriptor::TYPE_UINT64 :    // uint64, varint on the wire.
+      case FieldDescriptor::TYPE_FIXED64 :    // uint64, exactly eight bytes on the wire.
+        return "uint64_t";
+      case FieldDescriptor::TYPE_BOOL :    // bool, varint on the wire.
+        return "bool";
+      case FieldDescriptor::TYPE_ENUM :    // Enum, varint on the wire
+        return "enum " + full_name(field->enum_type());
+      case FieldDescriptor::TYPE_STRING :    // String
+        return "char *";
+      case FieldDescriptor::TYPE_GROUP :      // Tag-delimited message.  Deprecated.
+      case FieldDescriptor::TYPE_MESSAGE :    // Length-delimited message.
+        return "struct " + full_name(field->message_type());
+      case FieldDescriptor::TYPE_BYTES :    // Arbitrary byte array.
+        return "uint8_t";
+
+      default:
+        break;
+    }
+    return "";
+  }
+};
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-class C_Generator
+class CF_PBC_Generator
+    : public CF_Generator_Base
 {
-  GOOGLE_DISALLOW_EVIL_CONSTRUCTORS(C_Generator);
-
-  struct c_options {
-    bool do_pkgprefix;
-    c_options() : do_pkgprefix(true)
-      {}
-  } options;
+  // GOOGLE_DISALLOW_EVIL_CONSTRUCTORS(CF_PBC_Generator);
 
 public:
-  C_Generator()
+  CF_PBC_Generator()
   {
   }
 
-  ~C_Generator()
+  ~CF_PBC_Generator()
   {
   }
 
   bool Generate(const FileDescriptor * file, const string & opts, GeneratorContext * gctx, string * status)
   {
-    if ( !parse_options(opts, &options, status) ) {
+    if ( !parse_opts(opts, status) ) {
       return false;
     }
 
-    const string basename = strip_proto_suffix(file->name()) + ".pb-c";
 
-    // Generate header.
-    {
-      scoped_ptr<io::ZeroCopyOutputStream> output(gctx->Open(basename + ".h"));
+    { // Generate header.
+      scoped_ptr<io::ZeroCopyOutputStream> output(gctx->Open(pb_h_filename(file)));
       Printer printer(output.get(), '$');
       generate_c_header(file, &printer);
     }
 
-    // Generate cc file.
-    {
-      scoped_ptr<io::ZeroCopyOutputStream> output(gctx->Open(basename + ".c"));
+    { // Generate cc file.
+      scoped_ptr<io::ZeroCopyOutputStream> output(gctx->Open(pb_c_filename(file)));
       Printer printer(output.get(), '$');
       generate_c_source(file, &printer);
     }
@@ -68,64 +372,33 @@ public:
   }
 
 
-  static bool parse_options(const string & text, c_options * options, string * status)
-  {
-    vector<string> parts;
-    vector<pair<string, string> > opts;
-
-    split(text, ",", &parts);
-
-    for ( unsigned i = 0; i < parts.size(); i++ ) {
-      const string::size_type equals_pos = parts[i].find_first_of('=');
-      if ( equals_pos == string::npos ) {
-        opts.push_back(make_pair(parts[i], ""));
-      }
-      else {
-        opts.push_back(make_pair(parts[i].substr(0, equals_pos), parts[i].substr(equals_pos + 1)));
-      }
-    }
-
-    for (size_t i = 0; i < opts.size(); i++) {
-      if ( opts[i].first == "no-pkgprefix") {
-        options->do_pkgprefix = false;
-      }
-      else {
-        *status = "Unknown option: " + opts[i].first;
-        return false;
-      }
-    }
-
-    return true;
-  }
 
 
   void generate_c_header(const FileDescriptor * file, Printer * printer)
   {
-    // static const int min_header_version = 1000000;
+    smap vars;
 
-    const string fileid = file_id(file->name());
+    vars["filename"] = file->name();
+    vars["file_id"] = file_id(file->name());
+    vars["c_filename"] = pb_c_filename(file);
+    vars["h_filename"] = pb_h_filename(file);
 
-    // Generate top of header.
-    printer->Print(""
+
+    printer->Print(vars,
         "/*\n"
-        " * Generated by the protocol buffer compiler from $filename$\n"
-        " * DO NOT EDIT!\n"
+        " * $h_filename$\n"
+        " *   Generated by the protocol buffer compiler from $filename$\n"
+        " *   DO NOT EDIT!\n"
         " */\n"
-        "#ifndef __$fileid$_h__\n"
-        "#define __$fileid$_h__\n"
-        "\n",
-        "filename", file->name(),
-        "fileid", fileid
-        );
+        "#ifndef __$file_id$_pb_h__\n"
+        "#define __$file_id$_pb_h__\n"
+        "\n"
+        "#include <cuttle/pb/pb.h>\n");
 
-    printer->Print("#include <stddef.h>\n");
-    printer->Print("#include <stdint.h>\n");
-    printer->Print("#include <stdbool.h>\n");
-    printer->Print("#include \"cf_pb.h\"\n");
 
     for ( int i = 0; i < file->dependency_count(); i++ ) {
-      printer->Print("#include \"$dependency$.pb-c.h\"\n", "dependency",
-          strip_proto_suffix(file->dependency(i)->name()));
+      vars["dep"] = pb_h_filename(file->dependency(i));
+      printer->Print(vars, "#include \"$dep$\"\n");
     }
 
     printer->Print("\n\n"
@@ -149,32 +422,31 @@ public:
       printer->Print("\n");
     }
 
-    printer->Print("\n"
+    printer->Print(vars,
+        "\n"
         "#ifdef __cplusplus\n"
         "} /* extern \"C\" */\n"
         "#endif\n"
-        "\n\n#endif  /* __$fileid$_h__ */\n",
-        "fileid", fileid
-        );
-
+        "\n\n#endif  /* __$file_id$_pb_h__ */\n");
   }
 
 
   void generate_c_source(const FileDescriptor * file, Printer * printer)
   {
+    smap vars;
+
+    vars["filename"] = file->name();
+    vars["c_filename"] = pb_c_filename(file);
+    vars["h_filename"] = pb_h_filename(file);
+
     // Generate top of header.
-    printer->Print(""
+    printer->Print(vars,
         "/*\n"
-        " * Generated by the protocol buffer compiler from $filename$\n"
-        " * DO NOT EDIT!\n"
-        " */\n",
-        "filename",
-        file->name());
-
-
-    printer->Print("#include \"$filename$.pb-c.h\"\n", "filename", strip_proto_suffix(file->name()));
-    printer->Print("\n\n");
-
+        " * $c_filename$\n"
+        " *   Generated by the protocol buffer compiler from $filename$\n"
+        " *   DO NOT EDIT!\n"
+        " */\n"
+        "#include \"$h_filename$\"\n\n");
 
     if ( generate_enum_string_functions(file, printer) ) {
       printer->Print("\n");
@@ -188,35 +460,12 @@ public:
       generate_pb_fields(file, printer);
       printer->Print("\n");
     }
-
-//    // Generate function definitions
-//    if ( file->message_type_count() > 0 ) {
-//      Generate_ZRealloc(printer);
-//      printer->Print("\n\n");
-//      GenerateMethodDefinitions(file, printer);
-//      printer->Print("\n");
-//    }
-//
-//    // Generate services
-//    if ( file->service_count() > 0 ) {
-//      GenerateServiceDefinitions(file, printer);
-//    }
-
   }
 
 
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   // Generate enum declarations
 
-  string enum_type_name(const EnumDescriptor * enum_type)
-  {
-    return full_name(enum_type);
-  }
-
-  string enum_member_name(const EnumValueDescriptor * enum_member)
-  {
-    return enum_member->type()->name() + "_" + enum_member->name();
-  }
 
   int generate_enum_declarations(const FileDescriptor * file, Printer * printer)
   {
@@ -435,7 +684,7 @@ public:
         generate_struct_member(oneof->field(k), printer);
       }
       printer->Outdent();
-      printer->Print("}\n");
+      printer->Print("};\n");
       printer->Outdent();
       printer->Print("} $name$;\n\n", "name", name(oneof));
     }
@@ -452,8 +701,18 @@ public:
     printer->Print(vars, "} $class_name$;\n\n");
     printer->Print(vars, "extern const cf_pb_field_t $class_name$_fields[];\n\n");
 
-    printer->Print(vars, "size_t cf_pb_pack_$class_name$(const struct $class_name$ * obj, void ** buf);\n");
-    printer->Print(vars, "bool cf_pb_unpack_$class_name$(struct $class_name$ * obj, const void * buf, size_t size);\n");
+
+//    printer->Print(vars,
+//        "bool cf_$class_name$_init(struct $class_name$ * obj, const struct $class_name$_init_args * args);\n");
+//    printer->Print(vars,
+//        "void cf_$class_name$_cleanup(struct $class_name$ * obj);\n\n");
+
+    printer->Print(vars,
+        "size_t cf_pb_pack_$class_name$(const struct $class_name$ * obj,void ** buf);\n");
+    printer->Print(vars,
+        "bool cf_pb_unpack_$class_name$(struct $class_name$ * obj,const void * buf, size_t size);\n\n");
+
+
     printer->Print("\n\n");
 
   }
@@ -560,87 +819,8 @@ public:
 
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-  template<class T>
-  string name(const T * t)
-  {
-    const string name = t->name();
-    vector<string> pieces;
-    string rv = "";
 
-    split(name, ".", &pieces);
-    for ( size_t i = 0; i < pieces.size(); i++ ) {
-      if ( !pieces[i].empty() ) {
-        if ( !rv.empty() ) {
-          rv += "_";
-        }
-        rv += pieces[i];
-      }
-    }
-    return rv;
-  }
 
-  template<class T>
-  string full_name(const T * t)
-  {
-    const string fullname = t->full_name();
-    vector<string> pieces;
-    string rv = "";
-
-    split(fullname, ".", &pieces);
-    for ( size_t i = options.do_pkgprefix ? 0 : 1, n = pieces.size(); i < n; ++i ) {
-      if ( !pieces[i].empty() ) {
-        if ( !rv.empty() ) {
-          rv += "_";
-        }
-        rv += pieces[i];
-      }
-    }
-    return rv;
-  }
-
-  string field_name(const FieldDescriptor * field)
-  {
-    return name(field);
-  }
-
-  string cfctype(const FieldDescriptor * field)
-  {
-    switch ( field->type() ) {
-      case FieldDescriptor::TYPE_DOUBLE :    // double, exactly eight bytes on the wire.
-        return "double";
-      case FieldDescriptor::TYPE_FLOAT :    // float, exactly four bytes on the wire.
-        return "float";
-      case FieldDescriptor::TYPE_INT32 :    // int32, varint on the wire
-      case FieldDescriptor::TYPE_SFIXED32 :    // int32, exactly four bytes on the wire
-      case FieldDescriptor::TYPE_SINT32 :    // int32, ZigZag-encoded varint on the wire
-        return "int32_t";
-      case FieldDescriptor::TYPE_UINT32 :    // uint32, varint on the wire
-      case FieldDescriptor::TYPE_FIXED32 :    // uint32, exactly four bytes on the wire.
-        return "uint32_t";
-      case FieldDescriptor::TYPE_INT64 :    // int64, varint on the wire.
-      case FieldDescriptor::TYPE_SFIXED64 :    // int64, exactly eight bytes on the wire
-      case FieldDescriptor::TYPE_SINT64 :    // int64, ZigZag-encoded varint on the wire
-        return "int64_t";
-      case FieldDescriptor::TYPE_UINT64 :    // uint64, varint on the wire.
-      case FieldDescriptor::TYPE_FIXED64 :    // uint64, exactly eight bytes on the wire.
-        return "uint64_t";
-      case FieldDescriptor::TYPE_BOOL :    // bool, varint on the wire.
-        return "bool";
-      case FieldDescriptor::TYPE_ENUM :    // Enum, varint on the wire
-        return "enum " + full_name(field->enum_type());
-      case FieldDescriptor::TYPE_STRING :    // String
-        return "char *";
-      case FieldDescriptor::TYPE_GROUP :      // Tag-delimited message.  Deprecated.
-      case FieldDescriptor::TYPE_MESSAGE :    // Length-delimited message.
-        return "struct " + full_name(field->message_type());
-      case FieldDescriptor::TYPE_BYTES :    // Arbitrary byte array.
-        return "uint8_t";
-
-      default:
-        break;
-    }
-    return "";
-  }
 
   string cfdescptr(const FieldDescriptor * field)
   {
@@ -654,205 +834,239 @@ public:
     return "NULL";
   }
 
-  string cfpbtype(const FieldDescriptor * field)
-  {
-    switch ( field->type() ) {
-    case FieldDescriptor::TYPE_INT32    :    // int32, varint on the wire
-      return "INT32   ";
-    case FieldDescriptor::TYPE_SINT32   :    // int32, ZigZag-encoded varint on the wire
-      return "INT32   ";
-    case FieldDescriptor::TYPE_SFIXED32 :    // int32, exactly four bytes on the wire
-      return "SFIXED32";
-    case FieldDescriptor::TYPE_UINT32   :    // uint32, varint on the wire
-      return "UINT32  ";
-    case FieldDescriptor::TYPE_FIXED32  :    // uint32, exactly four bytes on the wire.
-      return "FIXED32 ";
 
-    case FieldDescriptor::TYPE_INT64    :    // int64, varint on the wire.
-      return "INT64   ";
-    case FieldDescriptor::TYPE_SINT64   :    // int64, ZigZag-encoded varint on the wire
-      return "INT64   ";
-    case FieldDescriptor::TYPE_SFIXED64 :    // int64, exactly eight bytes on the wire
-      return "SFIXED64";
-    case FieldDescriptor::TYPE_UINT64   :    // uint64, varint on the wire.
-      return "UINT64  ";
-    case FieldDescriptor::TYPE_FIXED64  :    // uint64, exactly eight bytes on the wire.
-      return "FIXED64 ";
 
-    case FieldDescriptor::TYPE_BOOL     :    // bool, varint on the wire.
-      return "BOOL    ";
-
-    case FieldDescriptor::TYPE_DOUBLE   :    // double, exactly eight bytes on the wire.
-      return "DOUBLE  ";
-
-    case FieldDescriptor::TYPE_FLOAT    :    // float, exactly four bytes on the wire.
-      return "FLOAT   ";
-
-    case FieldDescriptor::TYPE_ENUM     :    // Enum, varint on the wire
-      return "ENUM    ";
-
-    case FieldDescriptor::TYPE_STRING   :
-      return "STRING  ";
-
-    case FieldDescriptor::TYPE_BYTES    :
-      return "BYTES   ";
-
-    case FieldDescriptor::TYPE_GROUP :
-    case FieldDescriptor::TYPE_MESSAGE :
-      return "MESSAGE ";
-
-    default:
-        break;
-    }
-
-    return "BUG-HERE";
-  }
-
-  string nanopb_allocation(const FieldDescriptor * field)
-  {
-    if ( field->label() == FieldDescriptor::LABEL_REPEATED ) {
-      return "CALLBACK";
-    }
-
-    switch ( field->type() ) {
-      case FieldDescriptor::TYPE_DOUBLE :
-      case FieldDescriptor::TYPE_FLOAT :
-      case FieldDescriptor::TYPE_INT32 :
-      case FieldDescriptor::TYPE_SFIXED32 :
-      case FieldDescriptor::TYPE_SINT32 :
-      case FieldDescriptor::TYPE_UINT32 :
-      case FieldDescriptor::TYPE_FIXED32 :
-      case FieldDescriptor::TYPE_INT64 :
-      case FieldDescriptor::TYPE_SFIXED64 :
-      case FieldDescriptor::TYPE_SINT64 :
-      case FieldDescriptor::TYPE_UINT64 :
-      case FieldDescriptor::TYPE_FIXED64 :
-      case FieldDescriptor::TYPE_BOOL :
-      case FieldDescriptor::TYPE_ENUM :
-        return "STATIC";
-
-      case FieldDescriptor::TYPE_STRING :
-      case FieldDescriptor::TYPE_MESSAGE :
-        return "POINTER";
-
-      case FieldDescriptor::TYPE_BYTES :
-        return "CALLBACK";
-
-      default:
-        break;
-    }
-    return "";
-  }
-
-  // Convert a file name into a valid identifier.
-  static string file_id(const string & filename) {
-    string s;
-    for ( size_t i = 0; i < filename.size(); i++ ) {
-      s.push_back(isalnum(filename[i]) ? filename[i] : '_');
-    }
-    return s;
-  }
 
   //////////////////////////
-
-  static bool has_suffix(const string & str, const string & suffix) {
-    return str.size() >= suffix.size() && str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
-  }
-
-  static string strip_suffix(const string& str, const string& suffix) {
-    return has_suffix(str, suffix) ? str.substr(0, str.size() - suffix.size()) : str;
-  }
-
-  static string strip_proto_suffix(const string & filename) {
-    return has_suffix(filename, ".protodevel") ? strip_suffix(filename, ".protodevel") : strip_suffix(filename, ".proto");
-  }
-
-  static string t2s(int x) {
-    char s[16] = "";
-    sprintf(s, "%2d", x);
-    return s;
-  }
-
-  //////////////////////////
-  static void split(const string & full, const char* delim, vector<string>* result)
-  {
-    back_insert_iterator<vector<string> > output(*result);
-    split_to_iterator(full, delim, output);
-  }
-
-  template<typename _OI>
-  static inline void split_to_iterator(const string & full, const char delim[], _OI & output)
-  {
-    // Optimize the common case where delim is a single character.
-    if ( delim[0] != '\0' && delim[1] == '\0' ) {
-      char c = delim[0];
-      const char * p = full.data();
-      const char * end = p + full.size();
-      while ( p != end ) {
-        if ( *p == c ) {
-          ++p;
-        }
-        else {
-          const char * start = p;
-          while ( ++p != end && *p != c )
-            ;
-          *output++ = string(start, p - start);
-        }
-      }
-    }
-    else {
-      string::size_type begin_index, end_index;
-      begin_index = full.find_first_not_of(delim);
-      while ( begin_index != string::npos ) {
-        end_index = full.find_first_of(delim, begin_index);
-        if ( end_index == string::npos ) {
-          *output++ = full.substr(begin_index);
-          return;
-        }
-        *output++ = full.substr(begin_index, (end_index - begin_index));
-        begin_index = full.find_first_not_of(delim, end_index);
-      }
-    }
-  }
-  //////////////////////////
-
-
-
-
 
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-
-class CORPC_C_Generator
-      : public CodeGenerator
+class CF_CORPC_Generator
+    : public CF_Generator_Base
 {
-  GOOGLE_DISALLOW_EVIL_CONSTRUCTORS(CORPC_C_Generator);
-  C_Generator * c_generator;
+  GOOGLE_DISALLOW_EVIL_CONSTRUCTORS(CF_CORPC_Generator);
+
 public:
-  CORPC_C_Generator() {
-    c_generator = new C_Generator();
+  CF_CORPC_Generator()
+  {
   }
 
-  ~CORPC_C_Generator() {
-    delete c_generator;
+  ~CF_CORPC_Generator()
+  {
+  }
+
+  bool Generate(const FileDescriptor * file, const string & opts, GeneratorContext * gctx, string * status)
+  {
+    if ( !parse_opts(opts, status) ) {
+      return false;
+    }
+
+    { // Generate header.
+      scoped_ptr<io::ZeroCopyOutputStream> output(gctx->Open(corpc_h_filename(file)));
+      Printer printer(output.get(), '$');
+      generate_c_header(file, &printer);
+    }
+
+
+    { // Generate c file.
+      scoped_ptr<io::ZeroCopyOutputStream> output(gctx->Open(corpc_c_filename(file)));
+      Printer printer(output.get(), '$');
+      generate_c_source(file, &printer);
+    }
+
+    return true;
+  }
+
+  void generate_c_header(const FileDescriptor * file, Printer * printer)
+  {
+    smap vars;
+
+    vars["filename"] = file->name();
+    vars["file_id"] = file_id(file->name());
+    vars["c_filename"] = corpc_c_filename(file);
+    vars["h_filename"] = corpc_h_filename(file);
+    vars["pb_h_filename"] = pb_h_filename(file);
+
+
+    printer->Print(vars,
+        "/*\n"
+        " * $h_filename$\n"
+        " *   Generated by the protocol buffer compiler from $filename$\n"
+        " *   DO NOT EDIT!\n"
+        " */\n"
+        "#ifndef __$file_id$_corpc_h__\n"
+        "#define __$file_id$_corpc_h__\n"
+        "\n"
+        "#include \"$pb_h_filename$\"\n"
+        "#include <cuttle/corpc/channel.h>\n"
+        );
+
+
+    printer->Print("\n\n"
+        "#ifdef __cplusplus\n"
+        "extern \"C\" {\n"
+        "#endif\n"
+        "\n");
+
+
+    generate_sendrecv_declarations(file, printer);
+
+
+    printer->Print(vars,
+        "\n"
+        "#ifdef __cplusplus\n"
+        "} /* extern \"C\" */\n"
+        "#endif\n"
+        "\n\n#endif  /* __$file_id$_pb_h__ */\n");
+  }
+
+
+
+
+  void generate_c_source(const FileDescriptor * file, Printer * printer)
+  {
+    smap vars;
+
+    vars["filename"] = file->name();
+    vars["c_filename"] = corpc_c_filename(file);
+    vars["h_filename"] = corpc_h_filename(file);
+
+    // Generate top of header.
+    printer->Print(vars,
+        "/*\n"
+        " * $c_filename$\n"
+        " *   Generated by the protocol buffer compiler from $filename$\n"
+        " *   DO NOT EDIT!\n"
+        " */\n"
+        "#include \"$h_filename$\"\n\n"
+        );
+
+
+    generate_sendrecv_definitions(file, printer);
+  }
+
+
+
+
+
+
+
+
+  void generate_sendrecv_declarations(const FileDescriptor * file, Printer * printer)
+  {
+    for ( int i = 0, n = file->message_type_count(); i < n; ++i ) {
+      generate_sendrecv_declaration(file->message_type(i), printer);
+      printer->Print("\n");
+    }
+  }
+
+  void generate_sendrecv_declaration(const Descriptor * type, Printer * printer)
+  {
+    smap vars;
+
+    for ( int i = 0, n = type->nested_type_count(); i < n; ++i ) {
+      generate_sendrecv_declaration(type->nested_type(i), printer);
+      printer->Print("\n");
+    }
+
+    vars["type"] = full_name(type);
+
+    printer->Print(vars,
+        "bool corpc_stream_write_$type$(corpc_stream * st, const struct $type$ * obj);\n"
+        "bool corpc_stream_read_$type$(corpc_stream * st, struct $type$ * obj);\n\n"
+        );
+  }
+
+
+  void generate_sendrecv_definitions(const FileDescriptor * file, Printer * printer)
+  {
+    for ( int i = 0, n = file->message_type_count(); i < n; ++i ) {
+      generate_sendrecv_definition(file->message_type(i), printer);
+      printer->Print("\n");
+    }
+  }
+
+
+  void generate_sendrecv_definition(const Descriptor * type, Printer * printer)
+  {
+    smap vars;
+
+    for ( int i = 0, n = type->nested_type_count(); i < n; ++i ) {
+      generate_sendrecv_definition(type->nested_type(i), printer);
+      printer->Print("\n");
+    }
+
+    vars["type"] = full_name(type);
+
+    printer->Print(vars,
+        "static size_t corpc_pack_$type$(const void * obj, void ** buf)\n"
+        "{\n"
+        "  return cf_pb_pack_$type$(obj, buf);\n"
+        "}\n"
+        "\n"
+        "bool corpc_stream_write_$type$(corpc_stream * st, const struct $type$ * obj)\n"
+        "{\n"
+        "  return corpc_stream_write_msg(st, corpc_pack_$type$, obj);\n"
+        "}\n"
+        "\n"
+        "static bool corpc_unpack_$type$(void * obj, const void * buf, size_t size)\n"
+        "{\n"
+        "  return cf_pb_unpack_$type$(obj, buf, size);\n"
+        "}\n"
+        "\n"
+        "bool corpc_stream_read_$type$(corpc_stream * st, struct $type$ * obj)\n"
+        "{\n"
+        "  return corpc_stream_read_msg(st, corpc_unpack_$type$, obj);\n"
+        "}\n"
+        "\n"
+        "\n"
+        );
+  }
+  /*
+   *         "bool cf_pb_unpack_$class_name$(struct $class_name$ * obj, const void * buf, size_t size) {\n"
+        "  return cf_pb_unpack(buf, size, $class_name$_fields, obj);\n"
+        "}\n\n\n");
+   *
+   */
+
+};
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+template<class G>
+class Generator
+      : public CodeGenerator
+{
+  GOOGLE_DISALLOW_EVIL_CONSTRUCTORS(Generator);
+  G * generator;
+public:
+  Generator() {
+    generator = new G();
+  }
+
+  ~Generator() {
+    delete generator;
   }
 
   bool Generate(const FileDescriptor * file, const string & options, GeneratorContext * gctx, string * status) const {
-    return c_generator->Generate(file, options, gctx, status);
+    return generator->Generate(file, options, gctx, status);
   }
 };
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+//
 int main(int argc, char *argv[])
 {
   CommandLineInterface cli;
-  CORPC_C_Generator generator;
+  Generator<CF_PBC_Generator> g1;
+  Generator<CF_CORPC_Generator> g2;
 
-  cli.RegisterGenerator("--c_out", "--c_opt", &generator, "Generate C/H files.");
+  cli.RegisterGenerator("--c_out", "--c_opt", &g1, "Generate C/H files.");
+  cli.RegisterGenerator("--corpc_out", "--corpc_opt", &g2, "Generate CORPC C/H files.");
 
   // Add version info generated by automake
   // cli.SetVersionInfo(PACKAGE_STRING);
