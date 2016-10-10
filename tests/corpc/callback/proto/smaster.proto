@@ -1,0 +1,6 @@
+syntax = "proto2";
+
+
+message timer_event {
+	required string msg = 1;
+}

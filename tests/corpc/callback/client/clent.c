@@ -11,7 +11,6 @@
 #include <cuttle/cothread/scheduler.h>
 #include <cuttle/ssl/init-ssl.h>
 #include <cuttle/ssl/x509.h>
-
 #include "../proto/smaster.h"
 
 
@@ -50,12 +49,12 @@ static void send_timer_events_to_server(void * arg)
 {
   corpc_channel * channel = arg;
   corpc_stream * st = NULL;
-  sm_timer_event event;
+  timer_event event;
   int i = 0;
 
   CF_DEBUG("STARTED");
 
-  init_sm_timer_event(&event, "CLIENT-TIMER-EVENT");
+  init_timer_event(&event, "CLIENT-TIMER-EVENT");
 
   st = corpc_open_stream(channel,
       &(struct corpc_open_stream_opts ) {
@@ -68,7 +67,7 @@ static void send_timer_events_to_server(void * arg)
     goto end;
   }
 
-  while ( i++ < 10 && corpc_stream_write_sm_timer_event(st, &event) ) {
+  while ( i++ < 10 && corpc_stream_write_timer_event(st, &event) ) {
     co_sleep(500);
   }
 
@@ -76,7 +75,7 @@ end:
 
   corpc_close_stream(&st);
 
-  cleanup_sm_timer_event(&event);
+  cleanup_timer_event(&event);
 
   set_event(&sender_finished);
 
@@ -87,22 +86,22 @@ end:
 
 static void receive_timer_events_from_server(corpc_stream * st)
 {
-  sm_timer_event e;
+  timer_event e;
   CF_DEBUG("ENTER");
 
   set_event(&receiver_running);
 
 
-  init_sm_timer_event(&e, NULL);
+  init_timer_event(&e, NULL);
 
-  while ( corpc_stream_read_sm_timer_event(st, &e))  {
+  while ( corpc_stream_read_timer_event(st, &e))  {
     CF_DEBUG("%s", e.msg);
-    cleanup_sm_timer_event(&e);
+    cleanup_timer_event(&e);
   }
 
   CF_DEBUG("corpc_stream_read_sm_timer_event() fails");
 
-  cleanup_sm_timer_event(&e);
+  cleanup_timer_event(&e);
 
   set_event(&receiver_finished);
 

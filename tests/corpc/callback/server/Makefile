@@ -21,9 +21,19 @@ bindir  = $(prefix)/bin
 incdir  = $(prefix)/include
 libdir  = $(prefix)/lib
 
-INCLUDES+= -I. -I$(CURDIR)/../../../../include
-SOURCES = $(wildcard *.c ../proto/*.c)
-HEADERS = $(wildcard *.h ../proto/*.h)
+
+
+PROTO = smaster
+PROTO_PATH = ../proto
+PROTO_HEADERS += $(addprefix $(PROTO_PATH)/,  $(PROTO).pb.h  $(PROTO).corpc.h)
+PROTO_SOURCES += $(addprefix $(PROTO_PATH)/,  $(PROTO).pb.c  $(PROTO).corpc.c)
+
+
+
+INCLUDES+= -I. -I$(PROTO_PATH) -I$(CURDIR)/../../../../include
+
+SOURCES = $(wildcard *.c) ../proto/smaster.c $(PROTO_SOURCES)
+HEADERS = $(wildcard *.h) ../proto/smaster.h $(PROTO_HEADERS)
 MODULES = $(foreach s,$(SOURCES),$(addsuffix .o,$(basename $(s))))
 
 
@@ -33,6 +43,10 @@ CPPFLAGS=$(DEFINES) $(INCLUDES)
 # C Compiler and flags
 CC = $(cross)gcc
 CFLAGS= -Wall -Wextra -O3 -g0
+
+
+# PROTOC
+PROTOC = ../../../../corpc-pb-gen/corpc-pb-gen
 
 # Loader Flags And Libraries
 LD=$(CC)
@@ -68,3 +82,11 @@ uninstall:
 
 $(DESTDIR)/$(bindir):
 	mkdir -p $@
+
+.PRECIOUS: $(PROTO_PATH)/%.corpc.c
+$(PROTO_PATH)/%.corpc.c: $(PROTO_PATH)/%.proto
+	$(PROTOC) -I$(PROTO_PATH) --corpc_out=$(PROTO_PATH) $<
+
+.PRECIOUS: $(PROTO_PATH)/%.pb.c
+$(PROTO_PATH)/%.pb.c: $(PROTO_PATH)/%.proto
+	$(PROTOC) -I$(PROTO_PATH) --c_out=$(PROTO_PATH) $<

@@ -13,6 +13,7 @@
 #include <cuttle/corpc/server.h>
 #include "../proto/smaster.h"
 
+
 typedef
 struct client_context {
   corpc_channel * channel; // save for event notifications
@@ -34,12 +35,12 @@ static SSL_CTX * g_ssl_ctx;
 static void send_timer_events_to_client(corpc_channel * channel)
 {
   corpc_stream * st = NULL;
-  sm_timer_event event;
+  timer_event event;
   int i = 0;
 
   CF_DEBUG("STARTED");
 
-  init_sm_timer_event(&event, "SERVER-TIMER-EVENT");
+  init_timer_event(&event, "SERVER-TIMER-EVENT");
 
   st = corpc_open_stream(channel,
       &(struct corpc_open_stream_opts ) {
@@ -55,7 +56,7 @@ static void send_timer_events_to_client(corpc_channel * channel)
   while ( i++ < 10 ) {
 
     CF_DEBUG("C corpc_stream_write_sm_timer_event");
-    if ( !corpc_stream_write_sm_timer_event(st, &event) ) {
+    if ( !corpc_stream_write_timer_event(st, &event) ) {
       CF_CRITICAL("corpc_stream_write_sm_timer_event() fails: %s", strerror(errno));
       break;
     }
@@ -71,7 +72,7 @@ end:
 
   corpc_close_stream(&st);
 
-  cleanup_sm_timer_event(&event);
+  cleanup_timer_event(&event);
   event_sender_finished = true;
   CF_DEBUG("FINISHED");
 }
@@ -170,19 +171,19 @@ static void on_accepted_client_connection(corpc_channel * channel)
 
 static void receive_timer_events_from_client(corpc_stream * st)
 {
-  sm_timer_event e;
+  timer_event e;
   CF_DEBUG("ENTER");
 
-  init_sm_timer_event(&e, NULL);
+  init_timer_event(&e, NULL);
 
-  while ( corpc_stream_read_sm_timer_event(st, &e))  {
+  while ( corpc_stream_read_timer_event(st, &e))  {
     CF_DEBUG("%s", e.msg);
-    cleanup_sm_timer_event(&e);
+    cleanup_timer_event(&e);
   }
 
   CF_DEBUG("corpc_stream_read_sm_timer_event() fails");
 
-  cleanup_sm_timer_event(&e);
+  cleanup_timer_event(&e);
 
   event_receiver_finished = true;
   CF_DEBUG("LEAVE");
@@ -190,23 +191,23 @@ static void receive_timer_events_from_client(corpc_stream * st)
 
 static void ping_pong_tester(corpc_stream * st)
 {
-  sm_timer_event e;
+  timer_event e;
   CF_DEBUG("ENTER");
 
-  init_sm_timer_event(&e, NULL);
+  init_timer_event(&e, NULL);
 
-  while ( corpc_stream_read_sm_timer_event(st, &e))  {
+  while ( corpc_stream_read_timer_event(st, &e))  {
     CF_DEBUG("%s", e.msg);
-    cleanup_sm_timer_event(&e);
+    cleanup_timer_event(&e);
 
     e.msg = strdup("PONG");
-    if ( !corpc_stream_write_sm_timer_event(st, &e)) {
+    if ( !corpc_stream_write_timer_event(st, &e)) {
       break;
     }
-    cleanup_sm_timer_event(&e);
+    cleanup_timer_event(&e);
   }
 
-  cleanup_sm_timer_event(&e);
+  cleanup_timer_event(&e);
 
   CF_DEBUG("LEAVE");
 }

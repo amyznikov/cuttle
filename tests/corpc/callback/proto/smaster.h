@@ -10,7 +10,7 @@
 #ifndef __tests_corpc_callback_proto_smaster_h__
 #define __tests_corpc_callback_proto_smaster_h__
 
-#include <cuttle/corpc/channel.h>
+#include "smaster.corpc.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,15 +21,8 @@ extern "C" {
 #define k_smaster_ping_pong_method_name   "ping-pong"
 
 
-typedef
-struct sm_timer_event {
-  char * msg;
-} sm_timer_event;
-
-void init_sm_timer_event(struct sm_timer_event * e, const char * msg);
-void cleanup_sm_timer_event(struct sm_timer_event * e);
-bool corpc_stream_write_sm_timer_event(corpc_stream * st, const struct sm_timer_event * e);
-bool corpc_stream_read_sm_timer_event(corpc_stream * st, struct sm_timer_event * e);
+void init_timer_event(struct timer_event * e, const char * msg);
+void cleanup_timer_event(struct timer_event * e);
 
 
 
