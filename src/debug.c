@@ -408,6 +408,10 @@ bool cf_setup_signal_handler(void)
   sigemptyset(&sa.sa_mask);
   sa.sa_sigaction = my_signal_handler;
 
+#ifndef  SIGUNUSED
+#define SIGUNUSED 31
+#endif
+
   for ( sig = 1; sig <= SIGUNUSED; ++sig ) {
     /* skip unblockable signals */
     if ( sig != SIGKILL && sig != SIGSTOP && sig != SIGCONT && sigaction(sig, &sa, NULL) != 0 ) {

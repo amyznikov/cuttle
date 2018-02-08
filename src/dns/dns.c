@@ -208,9 +208,15 @@
 
 #ifndef HAVE_STATIC_ASSERT
 #if DNS_GNUC_PREREQ(0,0,0) && !DNS_GNUC_PREREQ(4,6,0)
-#define HAVE_STATIC_ASSERT 0 /* glibc doesn't check GCC version */
+  # define HAVE_STATIC_ASSERT 0 /* glibc doesn't check GCC version */
 #else
-#define HAVE_STATIC_ASSERT (defined static_assert)
+// #define HAVE_STATIC_ASSERT (defined static_assert)
+  #if defined static_assert
+  # define HAVE_STATIC_ASSERT 1
+  #else
+  # define HAVE_STATIC_ASSERT 0
+  #endif
+
 #endif
 #endif
 
@@ -376,7 +382,14 @@ const char *dns_strerror(int error) {
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #ifndef HAVE___ATOMIC_FETCH_ADD
-#define HAVE___ATOMIC_FETCH_ADD (defined __ATOMIC_RELAXED)
+// #define HAVE___ATOMIC_FETCH_ADD (defined __ATOMIC_RELAXED)
+# if defined __ATOMIC_RELAXED
+  # define HAVE___ATOMIC_FETCH_ADD 1
+#else
+  # define HAVE___ATOMIC_FETCH_ADD 0
+#endif
+
+
 #endif
 
 #ifndef HAVE___ATOMIC_FETCH_SUB
@@ -749,7 +762,15 @@ DNS_NOTUSED static size_t dns_strnlcpy(char *dst, size_t lim, const char *src, s
 } /* dns_strnlcpy() */
 
 
-#define DNS_HAVE_SOCKADDR_UN (defined AF_UNIX && !defined _WIN32)
+// warning: this use of "defined" may not be portable [-Wexpansion-to-defined]
+// #define DNS_HAVE_SOCKADDR_UN ((defined AF_UNIX) && !(defined _WIN32))
+#if ((defined AF_UNIX) && !(defined _WIN32))
+#define DNS_HAVE_SOCKADDR_UN 1
+#else
+#define DNS_HAVE_SOCKADDR_UN 0
+#endif
+
+
 
 static size_t dns_af_len(int af) {
 	static const size_t table[AF_MAX]	= {
@@ -6064,11 +6085,23 @@ static void dns_socketclose(int *fd, const struct dns_options *opts) {
 #endif
 
 #ifndef HAVE_SOCK_CLOEXEC
-#define HAVE_SOCK_CLOEXEC (defined SOCK_CLOEXEC)
+//#define HAVE_SOCK_CLOEXEC (defined SOCK_CLOEXEC)
+#ifdef SOCK_CLOEXEC
+# define HAVE_SOCK_CLOEXEC 1
+#else
+# define HAVE_SOCK_CLOEXEC 0
+#endif
 #endif
 
 #ifndef HAVE_SOCK_NONBLOCK
-#define HAVE_SOCK_NONBLOCK (defined SOCK_NONBLOCK)
+//  #define HAVE_SOCK_NONBLOCK (defined SOCK_NONBLOCK)
+#if defined SOCK_NONBLOCK
+  #define HAVE_SOCK_NONBLOCK 1
+#else
+  #define HAVE_SOCK_NONBLOCK 0
+#endif
+
+
 #endif
 
 #define DNS_SO_MAXTRY	7
