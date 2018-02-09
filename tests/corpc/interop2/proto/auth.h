@@ -21,7 +21,7 @@ extern "C" {
 #endif
 
 typedef
-struct auth_request {
+struct request {
   char * text;
 } auth_request;
 
@@ -41,8 +41,8 @@ struct auth_responce {
 } auth_responce;
 
 
-bool corpc_pack_auth_request(const struct auth_request * auth_request, corpc_msg * msg);
-bool corpc_unpack_auth_request(const corpc_msg * msg, struct auth_request * auth_request);
+bool corpc_pack_auth_request(const struct request * auth_request, corpc_msg * msg);
+bool corpc_unpack_auth_request(const corpc_msg * msg, struct request * auth_request);
 
 bool corpc_pack_auth_cookie(const struct auth_cookie * auth_cookie, corpc_msg * msg);
 bool corpc_unpack_auth_cookie(const corpc_msg * msg, struct auth_cookie * auth_cookie);
@@ -54,8 +54,8 @@ bool corpc_pack_auth_responce(const struct auth_responce * auth_responce, corpc_
 bool corpc_unpack_auth_responce(const corpc_msg * msg, struct auth_responce * auth_responce);
 
 
-bool corpc_stream_write_auth_request(corpc_stream * st, const struct auth_request * auth_request);
-bool corpc_stream_read_auth_request(corpc_stream * st, struct auth_request * auth_request);
+bool corpc_stream_write_auth_request(corpc_stream * st, const struct request * auth_request);
+bool corpc_stream_read_auth_request(corpc_stream * st, struct request * auth_request);
 
 bool corpc_stream_write_auth_cookie(corpc_stream * st, const struct auth_cookie * auth_cookie);
 bool corpc_stream_read_auth_cookie(corpc_stream * st, struct auth_cookie * auth_cookie);

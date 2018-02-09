@@ -61,6 +61,10 @@ void co_ssl_socket_close(co_ssl_socket * ssl_sock, bool abort_conn);
 void co_ssl_socket_destroy(co_ssl_socket ** ssl_sock, bool abort_conn);
 
 
+bool co_ssl_socket_get_peername(const co_ssl_socket * cc, struct sockaddr * addrs, socklen_t * addrslen);
+bool co_ssl_socket_get_sockname(const co_ssl_socket * cc, struct sockaddr * addrs, socklen_t * addrslen);
+
+
 co_ssl_socket * co_ssl_connect_new(const struct sockaddr * addrs, const struct co_ssl_connect_opts * opts);
 co_ssl_socket * co_ssl_server_connect_new(const char * address, uint16_t port, const struct co_ssl_connect_opts * opts);
 

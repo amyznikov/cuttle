@@ -1304,6 +1304,25 @@ co_socket * co_socket_create_new(int af, int sock_type, int proto)
 }
 
 
+bool co_socket_get_peername(const co_socket * cc, struct sockaddr * addrs, socklen_t * addrslen)
+{
+  if ( !cc ) {
+    errno = ENOTSOCK;
+    return false;
+  }
+  return getpeername(cc->e.so, addrs, addrslen) == 0;
+}
+
+bool co_socket_get_sockname(const co_socket * cc, struct sockaddr * addrs, socklen_t * addrslen)
+{
+  if ( !cc ) {
+    errno = ENOTSOCK;
+    return false;
+  }
+  return getsockname(cc->e.so, addrs, addrslen) == 0;
+}
+
+
 bool co_socket_create_listening(co_socket * cc, const struct sockaddr * addrs, int sock_type, int proto)
 {
   bool fok = false;

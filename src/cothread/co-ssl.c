@@ -178,6 +178,25 @@ co_ssl_socket * co_ssl_socket_create_new(int af, int sock_type, int proto, SSL_C
 }
 
 
+bool co_ssl_socket_get_peername(const co_ssl_socket * cc, struct sockaddr * addrs, socklen_t * addrslen)
+{
+  if ( !cc ) {
+    errno = ENOTSOCK;
+    return false;
+  }
+  return co_socket_get_peername(&cc->cc, addrs, addrslen);
+}
+
+bool co_ssl_socket_get_sockname(const co_ssl_socket * cc, struct sockaddr * addrs, socklen_t * addrslen)
+{
+  if ( !cc ) {
+    errno = ENOTSOCK;
+    return false;
+  }
+  return co_socket_get_sockname(&cc->cc, addrs, addrslen);
+}
+
+
 co_socket * co_ssl_socket_listen_new(const struct sockaddr * addrs, int sock_type, int proto)
 {
   co_socket * cc;

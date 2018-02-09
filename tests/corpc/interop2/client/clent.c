@@ -47,7 +47,7 @@ bool authenticate(corpc_channel * channel, const char * iam, const char * passwo
   (void)(password);
   (void)(iam);
 
-  struct auth_request auth_request;
+  struct request auth_request;
   struct auth_cookie auth_cookie;
   struct auth_cookie_sign auth_cookie_sign;
   struct auth_responce auth_responce;

@@ -8,14 +8,14 @@
 #include "auth.h"
 
 
-bool corpc_pack_auth_request(const struct auth_request * auth_request, corpc_msg * msg)
+bool corpc_pack_auth_request(const struct request * auth_request, corpc_msg * msg)
 {
   msg->data = strdup(auth_request->text);
   msg->size = strlen(msg->data) + 1;
   return true;
 }
 
-bool corpc_unpack_auth_request(const corpc_msg * msg, struct auth_request * auth_request)
+bool corpc_unpack_auth_request(const corpc_msg * msg, struct request * auth_request)
 {
   auth_request->text = strdup(msg->data);
   return true;
@@ -66,7 +66,7 @@ bool corpc_unpack_auth_responce(const corpc_msg * msg, struct auth_responce * au
 
 
 
-bool corpc_stream_write_auth_request(corpc_stream * st, const struct auth_request * auth_request)
+bool corpc_stream_write_auth_request(corpc_stream * st, const struct request * auth_request)
 {
   corpc_msg msg;
   bool fok = false;
@@ -82,7 +82,7 @@ bool corpc_stream_write_auth_request(corpc_stream * st, const struct auth_reques
   return fok;
 }
 
-bool corpc_stream_read_auth_request(corpc_stream * st, struct auth_request * auth_request)
+bool corpc_stream_read_auth_request(corpc_stream * st, struct request * auth_request)
 {
   corpc_msg msg;
   bool fok = false;

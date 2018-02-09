@@ -64,6 +64,9 @@ co_socket * co_socket_connect_new(const struct sockaddr *address, int sock_type,
 void co_socket_close(co_socket * cc, bool abort_conn);
 void co_socket_destroy(co_socket ** cc, bool abort_conn);
 
+bool co_socket_get_peername(const co_socket * cc, struct sockaddr * addrs, socklen_t * addrslen);
+bool co_socket_get_sockname(const co_socket * cc, struct sockaddr * addrs, socklen_t * addrslen);
+
 
 int  co_socket_fd(const co_socket * cc);
 bool co_socket_set_send_tmout(co_socket * cc, int msec);

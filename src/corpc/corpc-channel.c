@@ -1019,6 +1019,26 @@ const SSL * corpc_channel_get_ssl(const corpc_channel * channel)
   return co_ssl_socket_get_ssl(channel->ssl_sock);
 }
 
+
+bool corpc_channel_get_peername(const corpc_channel * channel, struct sockaddr * addrs, socklen_t * addrslen)
+{
+  if ( !channel || !channel->ssl_sock ) {
+    errno = ENOTSOCK;
+    return false;
+  }
+  return co_ssl_socket_get_peername(channel->ssl_sock, addrs, addrslen);
+}
+
+bool corpc_channel_get_sockname(const corpc_channel * channel, struct sockaddr * addrs, socklen_t * addrslen)
+{
+  if ( !channel || !channel->ssl_sock ) {
+    errno = ENOTSOCK;
+    return false;
+  }
+  return co_ssl_socket_get_sockname(channel->ssl_sock, addrs, addrslen);
+}
+
+
 static bool ssl_server_connect(corpc_channel * channel)
 {
   struct addrinfo * ai = NULL;
@@ -1291,6 +1311,24 @@ bool corpc_stream_write_msg(struct corpc_stream * st, size_t (*pack)(const void 
   }
   free(data);
   return fok;
+}
+
+bool corpc_stream_get_peername(const corpc_stream * stream , struct sockaddr * addrs, socklen_t * addrslen)
+{
+  if ( !stream || !stream->channel || !stream->channel->ssl_sock ) {
+    errno = ENOTSOCK;
+    return false;
+  }
+  return corpc_channel_get_peername(stream->channel, addrs, addrslen);
+}
+
+bool corpc_stream_get_sockname(const corpc_stream * stream, struct sockaddr * addrs, socklen_t * addrslen)
+{
+  if ( !stream || !stream->channel || !stream->channel->ssl_sock ) {
+    errno = ENOTSOCK;
+    return false;
+  }
+  return corpc_channel_get_sockname(stream->channel, addrs, addrslen);
 }
 
 

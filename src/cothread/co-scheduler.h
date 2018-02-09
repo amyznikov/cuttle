@@ -5,7 +5,7 @@
  *      Author: amyznikov
  */
 
-//#pragma once
+#pragma once
 
 #ifndef __cothread_scheduler_h__
 #define __cothread_scheduler_h__

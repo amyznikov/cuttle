@@ -118,6 +118,9 @@ void corpc_channel_set_client_context(corpc_channel * channel, void * client_con
 void * corpc_channel_get_client_context(const corpc_channel * channel);
 const SSL * corpc_channel_get_ssl(const corpc_channel * channel);
 
+bool corpc_channel_get_peername(const corpc_channel * channel, struct sockaddr * addrs, socklen_t * addrslen);
+bool corpc_channel_get_sockname(const corpc_channel * channel, struct sockaddr * addrs, socklen_t * addrslen);
+
 
 corpc_stream * corpc_open_stream(corpc_channel * channel, const corpc_open_stream_opts * opts);
 void corpc_close_stream(corpc_stream ** stp);
@@ -132,6 +135,9 @@ bool corpc_stream_write_msg(struct corpc_stream * st, size_t (*pack)(const void 
 enum corpc_stream_state corpc_get_stream_state(const corpc_stream * stream);
 
 void * corpc_stream_get_channel_client_context(const corpc_stream * stream);
+
+bool corpc_stream_get_peername(const corpc_stream * stream_, struct sockaddr * addrs, socklen_t * addrslen);
+bool corpc_stream_get_sockname(const corpc_stream * stream_, struct sockaddr * addrs, socklen_t * addrslen);
 
 
 

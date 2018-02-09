@@ -81,7 +81,7 @@ static void on_client_disconnected(corpc_channel * channel)
 static void on_smaster_authenticate(corpc_stream * st)
 {
   struct client_context * cli;
-  struct auth_request auth_request;
+  struct request auth_request;
   struct auth_cookie auth_cookie;
   struct auth_cookie_sign auth_cookie_sign;
   struct auth_responce auth_responce;
