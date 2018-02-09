@@ -10,3 +10,5 @@ CFLAGS = -Wall -Wextra -Wno-missing-field-initializers -O3 -g -Wno-implicit-fall
 
 SUBDIRS += src/pg
 CFLAGS += -I/usr/include/postgresql -I/usr/local/include/postgresql
+
+ARFLAGS = rvU
