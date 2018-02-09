@@ -76,6 +76,14 @@ int so_get_outq_size(int so);
 bool so_close(int so, bool abort_conn);
 
 
+void so_sockaddr_in(const char * addrs, uint16_t port,
+    struct sockaddr_in * sin);
+
+int so_tcp_listen(const char * addrs, uint16_t port,
+    struct sockaddr_in * _sin);
+
+int so_tcp_connect(struct sockaddr_in * addrs);
+int so_tcp_connect2(const char * addrs, uint16_t port);
 
 
 #ifdef __cplusplus
