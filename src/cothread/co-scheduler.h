@@ -12,7 +12,7 @@
 
 #include <cuttle/cothread/scheduler.h>
 #include <cuttle/cothread/cothread.h>
-#include "pthread_wait.h"
+#include <cuttle/pthread_wait.h>
 
 #ifdef __cplusplus
 extern "C" {

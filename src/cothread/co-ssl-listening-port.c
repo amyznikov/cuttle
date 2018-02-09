@@ -28,7 +28,7 @@ static void co_ssl_listening_thread(void * arg)
       CF_CRITICAL("co_ssl_socket_accept() fails");
     }
     else if ( !sslp->onaccept(sslp, accepted_sock) ) {
-      CF_CRITICAL("onaccept() fails: deletig ssl_socket");
+      CF_CRITICAL("onaccept() fails: deleting ssl_socket");
       co_ssl_socket_destroy(&accepted_sock, true);
     }
     else {

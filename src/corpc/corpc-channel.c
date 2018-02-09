@@ -932,6 +932,10 @@ static void corpc_channel_thread(void * arg)
 
 end :
 
+  if ( channel->ondisconnected ) {
+    channel->ondisconnected(channel);
+  }
+
   corpc_channel_close_internal(&channel, false);
   channel_state_unlock();
 
@@ -1029,6 +1033,11 @@ static bool ssl_server_connect(corpc_channel * channel)
     goto end;
   }
 
+  CF_DEBUG("ai->ai_family=%d", ai->ai_family);
+  if ( ai->ai_family == AF_INET ) {
+    CF_DEBUG("resolved to %s", inet_ntoa(((struct sockaddr_in* )ai->ai_addr)->sin_addr));
+  }
+
   if ( !(ssl_sock = co_ssl_socket_create_new(ai->ai_family, SOCK_STREAM, IPPROTO_TCP, channel->ssl_ctx)) ) {
     CF_CRITICAL("co_ssl_socket_create_new() fails : %s ", strerror(errno));
     goto end;
@@ -1113,6 +1122,7 @@ bool corpc_channel_accept(corpc_listening_port * clp, co_ssl_socket * accepted_s
     channel->ssl_ctx = clp->base.ssl_ctx;
     channel->onaccept = clp->onaccept;
     channel->onaccepted = clp->onaccepted;
+    channel->ondisconnected = clp->ondisconnected;
 
     if ( !co_schedule(corpc_channel_thread, channel, CORPC_CHANNEL_THREAD_STACK_SIZE) ) {
       CF_CRITICAL("co_schedule(corpc_channel_thread) fails: %s", strerror(errno));

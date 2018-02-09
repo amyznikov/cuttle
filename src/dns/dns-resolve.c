@@ -7,8 +7,40 @@
 
 #include <cuttle/dns/resolve.h>
 #include <cuttle/dns/dns.h>
+#include <cuttle/debug.h>
 #include <errno.h>
 
+
+static const char * cf_dns_status_str(int status)
+{
+  switch ( status ) {
+  case DNS_ENOBUFS :
+    return "ENOBUFS";
+  case DNS_EILLEGAL :
+    return "EILLEGAL";
+  case DNS_EORDER :
+    return "EORDER";
+  case DNS_ESECTION :
+    return "ESECTION";
+  case DNS_EUNKNOWN :
+    return "EUNKNOWN";
+  case DNS_EADDRESS :
+    return "EADDRESS";
+  case DNS_ENOQUERY :
+    return "ENOQUERY";
+  case DNS_ENOANSWER :
+    return "ENOANSWER";
+  case DNS_EFETCHED :
+    return "EFETCHED";
+  case DNS_ESERVICE :
+    return "ESERVICE";
+  case DNS_EFAIL :
+    return "EFAIL";
+  case DNS_ENONAME :
+    return "ENONAME";
+  }
+  return "UNKNOWN";
+}
 
 static int cf_dns_status2errno(int status)
 {
@@ -83,6 +115,7 @@ static struct dns_resolver * create_resolver(int * error)
 
   *error = 0;
 
+
   if ( !(resconf = getresconf(error)) ) {
     goto end;
   }
@@ -95,6 +128,7 @@ static struct dns_resolver * create_resolver(int * error)
     goto end;
   }
 
+  CF_DEBUG("resconf=%p hosts=%p hints=%p", resconf, hosts, hints);
   if ( !(R = dns_res_open(resconf, hosts, hints, NULL, dns_opts(), error)) ) {
     goto end;
   }
@@ -136,7 +170,9 @@ int cf_resolve_submit(struct cf_dns_query ** restrict pq, const char * name, con
     goto end;
   }
 
+  CF_DEBUG("dns_ai_open(%s)", name);
   if ( !(ai = dns_ai_open(name, NULL, DNS_T_A, hints, R, &error)) ) {
+    CF_CRITICAL("dns_ai_open(%s) fails", name);
     goto end;
   }
 
@@ -146,7 +182,10 @@ end : ;
     dns_res_close(R);
   }
 
+  CF_DEBUG("error=%d", error);
+
   if ( error && ai ) {
+    CF_DEBUG("dns_ai_close()");
     dns_ai_close(ai), ai = NULL;
     errno = cf_dns_status2errno(error);
   }
@@ -165,9 +204,11 @@ int cf_resolve_pollfd(const struct cf_dns_query * q)
 int cf_resolve_fetch(const struct cf_dns_query * q, struct addrinfo ** ent)
 {
   int status = dns_ai_nextent(ent, (struct dns_addrinfo*) q);
-  if ( status ) {
-    errno = cf_dns_status2errno(status);
-  }
+  errno = status < 0 ? cf_dns_status2errno(status) : status;
+
+  CF_DEBUG("dns_ai_nextent(): status=%d (%s)(%s)(%s) DNS_EBASE=%d", status, cf_dns_status_str(status),
+      dns_strerror(status), strerror(errno), DNS_EBASE);
+
 
   return status;
 }

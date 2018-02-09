@@ -64,6 +64,7 @@ struct corpc_channel {
   bool (*onconnect)(const corpc_channel * channel);
   bool (*onaccept)(const corpc_channel * channel);
   void (*onaccepted)(corpc_channel * channel);
+  void (*ondisconnected)(corpc_channel * channel);
 
   struct {
     char * connect_address;

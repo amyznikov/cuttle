@@ -12,6 +12,7 @@
 #include <arpa/inet.h>
 #include <stdio.h>
 #include <malloc.h>
+#include <cuttle/debug.h>
 
 #define INET_ADDR(a,b,c,d)      (uint32_t)((((uint32_t)(a))<<24)|((b)<<16)|((c)<<8)|(d))
 #define INET_BYTE(n,x)          ((uint8_t)((x >> (n*8) ) & 0x000000FF))
@@ -58,7 +59,9 @@ int co_resolve(const char * name, struct addrinfo ** restrict aip, const struct 
     timeout_sec = time(NULL) + timeout_sec;
   }
 
+  CF_DEBUG("cf_resolve_submit(%s)", name);
   if ( (status = cf_resolve_submit(&q, name, hints)) ) {
+    CF_CRITICAL("cf_resolve_submit(%s) fails", name);
     goto end;
   }
 
@@ -67,7 +70,26 @@ int co_resolve(const char * name, struct addrinfo ** restrict aip, const struct 
   while ( 42 ) {
 
     if ( (status = cf_resolve_fetch(q, aip)) == 0 ) {
-      break;
+
+        CF_DEBUG("*aip=%p", (*aip));
+        if ( (*aip) ) {
+
+          struct addrinfo * ai = *aip;
+          while ( ai ) {
+            CF_DEBUG("ai_canonname=%s", ai->ai_canonname);
+            CF_DEBUG("ai_family=%d", ai->ai_family);
+            CF_DEBUG("ai_addr=%p", ai->ai_addr);
+            CF_DEBUG("ai_addrlen=%u", ai->ai_addrlen);
+
+            if ( ai->ai_addr ) {
+              CF_DEBUG("*ai_addr=%s", inet_ntoa(((struct sockaddr_in* ) (ai->ai_addr))->sin_addr));
+            }
+
+            ai = ai->ai_next;
+          }
+        }
+
+        break;
     }
 
     if ( status == EAGAIN ) {
@@ -78,10 +100,13 @@ int co_resolve(const char * name, struct addrinfo ** restrict aip, const struct 
       }
 
       if ( (so = cf_resolve_pollfd(q)) == -1 ) {
+        CF_DEBUG("cf_resolve_pollfd() fails");
         break;
       }
 
+      CF_DEBUG("C co_io_wait");
       co_io_wait(so, EPOLLIN, 1000);
+      CF_DEBUG("R co_io_wait");
       continue;
     }
 
@@ -101,14 +126,19 @@ bool co_server_resolve(struct addrinfo ** ai, const char * address, uint16_t por
   bool fok = false;
 
   const struct addrinfo addrshints = {
-    .ai_family = PF_INET,
+    .ai_family = PF_UNSPEC,
     .ai_socktype = SOCK_STREAM,
     .ai_flags = AI_V4MAPPED
-  };
+  }; //
+
+  CF_DEBUG("co_resolve(%s:%u)", address, port);
 
   if ( co_resolve(address, ai, &addrshints, tmo > 0 ? tmo / 1000 : 15 * 1000) != 0 ) {
+    CF_CRITICAL("co_resolve(%s:%u) fails", address, port);
     goto end;
   }
+
+  CF_DEBUG("%s:%u : (*ai)->ai_addr->sa_family=%d", address, port, (*ai)->ai_addr->sa_family);
 
   if ( !port && (*ai)->ai_addr->sa_family != AF_UNIX ) {
     errno = EDESTADDRREQ;

@@ -94,7 +94,7 @@ end:
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-bool get_mail(corpc_channel * channel)
+bool read_mails(corpc_channel * channel)
 {
   corpc_stream * st = NULL;
   struct mail mail;
@@ -171,7 +171,7 @@ static void client_main(void * arg )
     goto end;
   }
 
-  if ( !get_mail(channel) ) {
+  if ( !read_mails(channel) ) {
     CF_FATAL("corpc_open_channel() fails");
     goto end;
   }
