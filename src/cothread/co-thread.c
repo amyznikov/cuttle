@@ -236,6 +236,7 @@ coroutine_t co_create(void (*func)(void *), void * data, void * stack, size_t si
 
 end:
 
+  // CF_DEBUG("cothread created: co=%p", co);
   return (coroutine_t) co;
 }
 

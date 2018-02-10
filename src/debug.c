@@ -8,6 +8,7 @@
 #define _GNU_SOURCE
 
 #include <cuttle/debug.h>
+#include <cuttle/cothread/cothread.h>
 #include <stdio.h>
 #include <malloc.h>
 #include <string.h>
@@ -280,7 +281,7 @@ static void do_plogv(int pri, const char * func, int line, const char * format, 
 #endif
   {
     plogbegin(pri & 0x07);
-    fprintf(fplog, "|%c|%6d|%s| %-28s(): %4d :", pric(pri), gettid(), ctime_string(), func, line);
+    fprintf(fplog, "|%c|%6d[%p|%s| %-28s(): %4d :", pric(pri), gettid(), co_current(), ctime_string(), func, line);
     vfprintf(fplog, format, arglist);
     fputc('\n',fplog);
     dump_ssl_errors();

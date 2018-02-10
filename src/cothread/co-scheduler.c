@@ -44,7 +44,7 @@
 
 
 #define CF_TRACE(...)
-  //  CF_DEBUG(__VA_ARGS__)
+// CF_DEBUG(__VA_ARGS__)
 
 
 #define co_current_time_ms()  cf_get_monotic_ms()
@@ -126,7 +126,7 @@ static inline bool epoll_remove(int so)
 static inline int epoll_wait_events(struct epoll_event events[], int nmax)
 {
   int n;
-  while ( (n = epoll_wait(epoll_listener.eso, events, nmax, -1)) < 0 && errno == EINTR )
+  while ( (n = epoll_wait(epoll_listener.eso, events, nmax, 1000)) < 0 && errno == EINTR )
     {}
   return n;
 }
@@ -206,6 +206,7 @@ static void * epoll_listener_thread(void * arg)
     for ( i = 0, c = 0; i < n; ++i ) {
 
       e = events[i].data.ptr;
+      CF_TRACE("n=%d so[%d]=%d", n, i, e->so);
 
       if ( e->type == iowait_eventfd ) {
         eventfd_t x;
@@ -220,6 +221,7 @@ static void * epoll_listener_thread(void * arg)
     }
 
     if ( c ) {
+      CF_TRACE("epoll_listener_signal()");
       epoll_listener_signal();
     }
 
@@ -380,15 +382,21 @@ static inline int send_schedule_request(struct co_scheduler_context * core, cons
   }
   else {
 
+    CF_TRACE("co_scheduler_lock(core)");
     co_scheduler_lock(core);
 
+    CF_TRACE("co_send(core->cs[0], rq)");
     if ( co_send(core->cs[0], rq, sizeof(*rq), 0) != (ssize_t) sizeof(*rq) ) {
       status = errno;
     }
-    else if ( co_recv(core->cs[0], &status, sizeof(status), 0) != (ssize_t) sizeof(status) ) {
-      status = errno;
+    else {
+      CF_TRACE("co_recv(core->cs[0], &status)");
+      if ( co_recv(core->cs[0], &status, sizeof(status), 0) != (ssize_t) sizeof(status) ) {
+        status = errno;
+      }
     }
 
+    CF_TRACE("co_scheduler_unlock(core)");
     co_scheduler_unlock(core);
   }
 
@@ -396,6 +404,7 @@ static inline int send_schedule_request(struct co_scheduler_context * core, cons
 }
 
 
+static ssize_t co_recv_rqh(int so, void * buf, size_t buf_size, int flags);
 
 static void schedule_request_handler(void * arg)
 {
@@ -409,7 +418,9 @@ static void schedule_request_handler(void * arg)
 
   CF_TRACE("BEG");
 
-  while ( (size = co_recv(current_core->cs[1], &creq, sizeof(creq), 0)) == (ssize_t) sizeof(creq) ) {
+  while ( (size = co_recv_rqh(current_core->cs[1], &creq, sizeof(creq), 0)) == (ssize_t) sizeof(creq) ) {
+
+    CF_TRACE("START RQH: cs[0]=%d cs[1]=%d", current_core->cs[0], current_core->cs[1]);
 
     errno = 0;
 
@@ -427,11 +438,15 @@ static void schedule_request_handler(void * arg)
         CF_CRITICAL("co_create() fails: %s", strerror(errno));
       }
       else {
+        CF_TRACE("RQH: epoll_listener_lock()");
         epoll_listener_lock();
+        CF_TRACE("RQH: ccfifo_ppush(&current_core->queue, co)");
         ccfifo_ppush(&current_core->queue, co);
         epoll_listener_signal();
+        CF_TRACE("RQH: epoll_listener_unlock()");
         epoll_listener_unlock();
 
+        CF_TRACE("RQH: co=%p", co);
         status  = 0;
       }
 
@@ -469,16 +484,19 @@ static void schedule_request_handler(void * arg)
         }
         else {
           status = 0;
+          CF_TRACE("RQH: co=%p", co);
         }
       }
     }
 
 
+    CF_TRACE("RQH: co_send(current_core->cs[1], status");
     if ( co_send(current_core->cs[1], &status, sizeof(status), 0) != sizeof(status) ) {
       CF_FATAL("FATAL: co_send(status) fails: %s", strerror(errno));
       exit(1);
     }
 
+    CF_TRACE("FINISH RQH");
   }
 
   CF_FATAL("LEAVE: co_recv(schedule_request) fails: %s\n", strerror(errno));
@@ -588,7 +606,7 @@ static void * pclthread(void * arg)
     CF_FATAL("FATAL: co_current() fails");
     exit(1);
   }
-  CF_TRACE("R current_core->main = co_current()");
+  CF_TRACE("R current_core->main = co_current()=%p", current_core->main);
 
   CF_TRACE("C co_create(schedule_request_handler)");
   if ( !(co = co_create(schedule_request_handler, NULL, NULL, CREQ_LISTENER_STACK_SIZE)) ) {
@@ -599,7 +617,6 @@ static void * pclthread(void * arg)
 
   CF_TRACE("C epoll_listener_lock()");
   epoll_listener_lock();
-  CF_TRACE("R epoll_listener_lock()");
 
   ccfifo_ppush(&current_core->queue, co);
 
@@ -610,6 +627,7 @@ static void * pclthread(void * arg)
 
     while ( ccfifo_pop(&current_core->queue, &co) ) {
       epoll_listener_unlock();
+      CF_TRACE("new thread: co=%p", co);
       co_call(co);
       epoll_listener_lock();
     }
@@ -617,12 +635,16 @@ static void * pclthread(void * arg)
     t0 = co_current_time_ms();
 
     if ( !(n = walk_waiters_list(t0, cc, ccmax, &tmo)) ) {
+      CF_TRACE("epoll_listener_wait(tmo=%lld)", (long long)(tmo));
       epoll_listener_wait(tmo);
+      CF_TRACE("epoll_listener_wait(tmo=%lld) wake up", (long long)(tmo));
     }
     else {
       epoll_listener_unlock();
       for ( int i = 0; i < n; ++i ) {
+        CF_TRACE("co_call(cc[i=%d]=%p)", i, cc[i]);
         co_call(cc[i]);
+        CF_TRACE("co_call(cc[i=%d]=%p) ret", i, cc[i]);
       }
       epoll_listener_lock();
     }
@@ -1704,6 +1726,38 @@ ssize_t co_recv(int so, void * buf, size_t buf_size, int flags)
   return size;
 }
 
+ssize_t co_recv_rqh(int so, void * buf, size_t buf_size, int flags)
+{
+  ssize_t size;
+  while ( 42 ) {
+
+    CF_TRACE("recv(so=%d, buf, buf_size, flags | MSG_DONTWAIT)", so);
+    size = recv(so, buf, buf_size, flags | MSG_DONTWAIT);
+    CF_TRACE("recv(so=%d, buf, buf_size, flags | MSG_DONTWAIT): size=%zd errno=%s", so, size, strerror(errno));
+
+    if ( size >= 0 || errno != EAGAIN) {
+      break;
+    }
+
+    CF_TRACE("co_io_wait(EPOLLIN, so=%d)", so);
+    if ( !(co_io_wait(so, EPOLLIN, -1) & EPOLLIN) ) {
+      CF_TRACE("co_io_wait(EPOLLIN, so=%d) fails", so);
+      break;
+    }
+    CF_TRACE("co_io_wait(EPOLLIN, so=%d) OK", so);
+  }
+
+  if ( size == 0 ) {
+    errno = ECONNRESET;
+  }
+  else if ( size < 0 ) {
+    errno = so_get_error(so);
+  }
+
+  CF_TRACE("leave: so=%d size=%zd", so, size);
+  return size;
+}
+
 
 ssize_t co_read(int fd, void * buf, size_t buf_size)
 {
@@ -1768,6 +1822,8 @@ int co_tcp_connect(const struct sockaddr *address, socklen_t address_len, int tm
   if ( (so = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1 ) {
     goto __end;
   }
+
+  so_set_non_blocking(so, true);
 
   if ( tmo_sec > 0 ) {
     so_set_recv_timeout(so, tmo_sec);
