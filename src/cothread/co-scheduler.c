@@ -1760,6 +1760,38 @@ int co_connect(int so, const struct sockaddr *address, socklen_t address_len)
 }
 
 
+int co_tcp_connect(const struct sockaddr *address, socklen_t address_len, int tmo_sec)
+{
+  bool fOk = false;
+  int so = -1;
+
+  if ( (so = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1 ) {
+    goto __end;
+  }
+
+  if ( tmo_sec > 0 ) {
+    so_set_recv_timeout(so, tmo_sec);
+    so_set_send_timeout(so, tmo_sec);
+  }
+
+  if ( co_connect(so, address, address_len) == -1 ) {
+    goto __end;
+  }
+
+  fOk = true;
+
+__end:
+
+  if ( !fOk ) {
+    if ( so != -1 ) {
+      close(so), so = -1;
+    }
+  }
+
+  return so;
+}
+
+
 int co_accept(int sso, struct sockaddr * restrict address, socklen_t * restrict address_len)
 {
   int so;

@@ -87,6 +87,7 @@ ssize_t co_recv(int so, void * buf, size_t size, int flags);
 ssize_t co_read(int fd, void * buf, size_t size);
 ssize_t co_write(int fd, const void *buf, size_t size);
 int co_connect(int so, const struct sockaddr *address, socklen_t address_len);
+int co_tcp_connect(const struct sockaddr *address, socklen_t address_len, int tmo_sec);
 int co_accept(int so, struct sockaddr * restrict address, socklen_t * restrict address_len);
 int co_poll(struct pollfd * fds, nfds_t nfds, int timeout_ms);
 
