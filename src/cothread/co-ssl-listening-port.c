@@ -11,7 +11,7 @@
 #include <malloc.h>
 #include <errno.h>
 
-#define CO_SERVER_LISTENING_THREAD_STACK_SIZE         (64*1024)
+#define CO_SERVER_LISTENING_THREAD_STACK_SIZE         (8*1024*1024)
 
 
 

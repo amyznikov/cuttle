@@ -47,6 +47,9 @@
 // CF_DEBUG(__VA_ARGS__)
 
 
+#define E_CHECK(e) \
+  ( (e)->type == iowait_io || (e)->type == iowait_eventfd) && ((e)->so > 0) && (((e)->head && (e)->tail) || (!(e)->head && !(e)->tail)) && ((e)->head != ((struct io_waiter *)0x3100000004))
+
 #define co_current_time_ms()  cf_get_monotic_ms()
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -105,11 +108,23 @@ static inline bool epoll_add(struct iorq * e, uint32_t events)
 {
   int status;
 
+  if ( !E_CHECK(e) ) {
+    CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p events=0x%0X",
+        e->type, e->so, e->head, e->tail, events);
+    raise(SIGINT);
+  }
+
   status = epoll_ctl(epoll_listener.eso, EPOLL_CTL_ADD, e->so,
       &(struct epoll_event ) {
             .data.ptr = e,
             .events = (events | ((events & EPOLLONESHOT) ? 0 : EPOLLET))
             });
+
+  if ( !E_CHECK(e) ) {
+    CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p events=0x%0X",
+        e->type, e->so, e->head, e->tail, events);
+    raise(SIGINT);
+  }
 
   return status == 0;
 }
@@ -125,14 +140,20 @@ static inline bool epoll_remove(int so)
 
 static inline int epoll_wait_events(struct epoll_event events[], int nmax)
 {
-  int n;
-  while ( (n = epoll_wait(epoll_listener.eso, events, nmax, 1000)) < 0 && errno == EINTR )
+  int n = 0;
+  while ( (n = epoll_wait(epoll_listener.eso, events, nmax, -1)) < 0 && errno == EINTR )
     {}
   return n;
 }
 
 static inline void epoll_queue(struct iorq * e, struct io_waiter * w)
 {
+  if ( !E_CHECK(e) ) {
+    CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p",
+        e->type, e->so, e->head, e->tail);
+    raise(SIGINT);
+  }
+
   if ( w ) {
 
     epoll_listener_lock();
@@ -153,6 +174,12 @@ static inline void epoll_queue(struct iorq * e, struct io_waiter * w)
       e->head = w;
     }
 
+    if ( !E_CHECK(e)  ) {
+      CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p",
+          e->type, e->so, e->head, e->tail);
+      raise(SIGINT);
+    }
+
     epoll_listener_unlock();
   }
 }
@@ -162,6 +189,12 @@ static inline void epoll_dequeue(struct iorq * e, struct io_waiter * w)
   if ( w ) {
 
     epoll_listener_lock();
+
+    if ( !E_CHECK(e)  ) {
+      CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p",
+          e->type, e->so, e->head, e->tail);
+      raise(SIGINT);
+    }
 
     if ( e->tail == w ) {
       e->tail = w->prev;
@@ -179,6 +212,12 @@ static inline void epoll_dequeue(struct iorq * e, struct io_waiter * w)
       e->head = w->next;
     }
 
+    if ( !E_CHECK(e)  ) {
+      CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p",
+          e->type, e->so, e->head, e->tail);
+      raise(SIGINT);
+    }
+
     epoll_listener_unlock();
   }
 }
@@ -188,13 +227,13 @@ static void * epoll_listener_thread(void * arg)
 {
   (void) (arg);
 
-  const int MAX_EPOLL_EVENTS = 1000;
+  const int MAX_EPOLL_EVENTS = 1;
   struct epoll_event events[MAX_EPOLL_EVENTS];
 
   struct iorq * e;
-  struct io_waiter * w;
+  struct io_waiter * w = NULL;
 
-  int i, n, c;
+  int i, n, c, k;
 
   pthread_detach(pthread_self());
 
@@ -205,18 +244,35 @@ static void * epoll_listener_thread(void * arg)
 
     for ( i = 0, c = 0; i < n; ++i ) {
 
+      w = NULL;
       e = events[i].data.ptr;
+
       CF_TRACE("n=%d so[%d]=%d", n, i, e->so);
+
+      k = 0;
+
+      if ( !E_CHECK(e) ) {
+        CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p n=%d i=%d c=%d events[i].events=0x%0X w=%p k=%d",
+            e->type, e->so, e->head, e->tail, n, i, c, events[i].events, w, k);
+        raise(SIGINT);
+      }
+
+      for ( w = e->head; w; w = w->next, ++k ) {
+
+        if ( w == ((struct io_waiter *)0x3100000004) ) {
+          CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p n=%d i=%d c=%d events[i].events=0x%0X w=%p k=%d",
+              e->type, e->so, e->head, e->tail, n, i, c, events[i].events, w, k);
+          raise(SIGINT);
+        }
+
+        if ( ((w->events |= events[i].events) & w->mask) && w->co ) {
+          ++c;
+        }
+      }
 
       if ( e->type == iowait_eventfd ) {
         eventfd_t x;
         while ( eventfd_read(e->so, &x) == 0 ) {}
-      }
-
-      for ( w = e->head; w; w = w->next ) {
-        if ( ((w->events |= events[i].events) & w->mask) && w->co ) {
-          ++c;
-        }
       }
     }
 
@@ -337,13 +393,52 @@ static void iocb_handler(void * arg)
 {
   struct iocb * cb = arg;
 
+  if ( !E_CHECK(&cb->e) ) {
+    CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p",
+        cb->e.type, cb->e.so, cb->e.head, cb->e.tail);
+    raise(SIGINT);
+  }
+
   while ( cb->fn(cb->cookie, cb->e.head->revents) == 0 ) {
+
+    if ( !E_CHECK(&cb->e) ) {
+      CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p",
+          cb->e.type, cb->e.so, cb->e.head, cb->e.tail);
+      raise(SIGINT);
+    }
+
     co_call(current_core->main);
+
+    if ( !E_CHECK(&cb->e) ) {
+      CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p",
+          cb->e.type, cb->e.so, cb->e.head, cb->e.tail);
+      raise(SIGINT);
+    }
+  }
+
+  if ( !E_CHECK(&cb->e) ) {
+    CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p",
+        cb->e.type, cb->e.so, cb->e.head, cb->e.tail);
+    raise(SIGINT);
   }
 
   epoll_remove(cb->e.so);
+
+  if ( !E_CHECK(&cb->e) ) {
+    CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p",
+        cb->e.type, cb->e.so, cb->e.head, cb->e.tail);
+    raise(SIGINT);
+  }
+
   remove_waiter(current_core, cb->node);
 
+  if ( !E_CHECK(&cb->e) ) {
+    CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p",
+        cb->e.type, cb->e.so, cb->e.head, cb->e.tail);
+    raise(SIGINT);
+  }
+
+  CF_WARNING("FREE CB = %p cb->cookie=%p", cb, cb->cookie);
   free(cb);
 }
 
@@ -474,6 +569,12 @@ static void schedule_request_handler(void * arg)
                   .tmo = -1,
                 }));
 
+        if ( !E_CHECK(&cb->e)  ) {
+          CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p",
+              cb->e.type, cb->e.so, cb->e.head, cb->e.tail);
+          raise(SIGINT);
+        }
+
         if ( !cb->node ) {
           status = errno ? errno : ENOMEM;
           CF_FATAL("add_waiter() fails");
@@ -485,6 +586,13 @@ static void schedule_request_handler(void * arg)
         else {
           status = 0;
           CF_TRACE("RQH: co=%p", co);
+
+          if ( !E_CHECK(&cb->e)  ) {
+            CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p",
+                cb->e.type, cb->e.so, cb->e.head, cb->e.tail);
+            raise(SIGINT);
+          }
+
         }
       }
     }
@@ -700,7 +808,7 @@ static pthread_t new_pcl_thread(void)
   CF_TRACE("R ccfifo_init()");
 
   CF_TRACE("C cclist_init()");
-  if ( !cclist_init(&ctx->waiters, 10000, sizeof(struct io_waiter)) ) {
+  if ( !cclist_init(&ctx->waiters, 65536, sizeof(struct io_waiter)) ) {
     CF_FATAL("cclist_init() fails: %s", strerror(errno));
     goto end;
   }
@@ -944,7 +1052,7 @@ static struct co_thread_lock_s * co_thread_check(co_thread_lock_t * objp)
           " Forgot to call co_thread_lock()?",
           obj->co, co_current());
       errno = EBUSY;
-      //raise(SIGINT);
+      raise(SIGINT);
       obj = NULL;
     }
   }
@@ -954,7 +1062,7 @@ static struct co_thread_lock_s * co_thread_check(co_thread_lock_t * objp)
           " Forgot to call co_thread_lock()?",
           obj->co, pthread_self());
       errno = EBUSY;
-      //raise(SIGINT);
+      raise(SIGINT);
       obj = NULL;
     }
   }
@@ -1123,6 +1231,12 @@ static int co_thread_signal_internal(co_thread_lock_t * objp, bool bc)
 
     nb_signalled = 0;
 
+    if ( !E_CHECK(&obj->e)  ) {
+      CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p",
+          obj->e.type, obj->e.so, obj->e.head, obj->e.tail);
+      raise(SIGINT);
+    }
+
     for ( struct io_waiter * iow = obj->e.head; iow != NULL; iow = iow->next ) {
 
       if ( iow->flags & MTX_WAKEUP_WAITING ) {
@@ -1256,7 +1370,15 @@ bool co_socket_init(co_socket * cc, int so)
   cc->e.type = iowait_io;
   cc->e.tail = cc->e.head = NULL;
   cc->recvtmo = cc->sendtmo = -1;
-  if ( (cc->e.so = so) != -1 && (!so_set_non_blocking(so, 1) || !epoll_add(&cc->e, EPOLLIN | EPOLLOUT)) ) {
+  cc->e.so = so;
+
+  if ( !E_CHECK(&cc->e)  ) {
+    CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p",
+        cc->e.type, cc->e.so, cc->e.head, cc->e.tail);
+    raise(SIGINT);
+  }
+
+  if ( cc->e.so != -1 && (!so_set_non_blocking(so, 1) || !epoll_add(&cc->e, EPOLLIN | EPOLLOUT)) ) {
     cc->e.so = -1;
     return false;
   }
@@ -1268,6 +1390,12 @@ void co_socket_close(co_socket * cc, bool abort_conn)
   if ( cc && cc->e.so != -1 ) {
 
     struct io_waiter * w;
+
+    if ( !E_CHECK(&cc->e)  ) {
+      CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p",
+          cc->e.type, cc->e.so, cc->e.head, cc->e.tail);
+      raise(SIGINT);
+    }
 
     epoll_listener_lock();
     so_close(cc->e.so, abort_conn);
@@ -1671,6 +1799,12 @@ uint32_t co_io_wait(int so, uint32_t events, int msec)
         })),
   };
 
+  if ( !E_CHECK(&e)  ) {
+    CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p",
+        e.type, e.so, e.head, e.tail);
+    raise(SIGINT);
+  }
+
   if ( !node ) {
     CF_FATAL("add_waiter() fails");
     revents = EPOLLERR;
@@ -1695,12 +1829,20 @@ ssize_t co_send(int so, const void * buf, size_t buf_size, int flags)
 {
   const uint8_t * pb = buf;
   ssize_t size, sent = 0;
+  int tmo = 15;
 
   while ( sent < (ssize_t) buf_size ) {
     if ( (size = send(so, pb + sent, buf_size - sent, flags | MSG_DONTWAIT)) > 0 ) {
       sent += size;
     }
-    else if ( (errno != EAGAIN) || !(co_io_wait(so, EPOLLOUT, -1) & EPOLLOUT) ) {
+    else if ( errno == EAGAIN ) {
+      so_get_send_timeout(so, &tmo);
+      if ( !(co_io_wait(so, EPOLLOUT, tmo * 1000) & EPOLLOUT) ) {
+        CF_CRITICAL("CONDITION co_io_wait(EPOLLOUT) & EPOLLOUT NOT MEET");
+        break;
+      }
+    }
+    else {
       break;
     }
   }
@@ -1712,8 +1854,10 @@ ssize_t co_send(int so, const void * buf, size_t buf_size, int flags)
 ssize_t co_recv(int so, void * buf, size_t buf_size, int flags)
 {
   ssize_t size;
+  int tmo = 15;
   while ( (size = recv(so, buf, buf_size, flags | MSG_DONTWAIT)) < 0 && errno == EAGAIN ) {
-    if ( !(co_io_wait(so, EPOLLIN, -1) & EPOLLIN) ) {
+    so_get_recv_timeout(so, &tmo);
+    if ( !(co_io_wait(so, EPOLLIN, tmo * 1000) & EPOLLIN) ) {
       break;
     }
   }
@@ -1729,22 +1873,15 @@ ssize_t co_recv(int so, void * buf, size_t buf_size, int flags)
 ssize_t co_recv_rqh(int so, void * buf, size_t buf_size, int flags)
 {
   ssize_t size;
+
   while ( 42 ) {
-
-    CF_TRACE("recv(so=%d, buf, buf_size, flags | MSG_DONTWAIT)", so);
     size = recv(so, buf, buf_size, flags | MSG_DONTWAIT);
-    CF_TRACE("recv(so=%d, buf, buf_size, flags | MSG_DONTWAIT): size=%zd errno=%s", so, size, strerror(errno));
-
     if ( size >= 0 || errno != EAGAIN) {
       break;
     }
-
-    CF_TRACE("co_io_wait(EPOLLIN, so=%d)", so);
     if ( !(co_io_wait(so, EPOLLIN, -1) & EPOLLIN) ) {
-      CF_TRACE("co_io_wait(EPOLLIN, so=%d) fails", so);
       break;
     }
-    CF_TRACE("co_io_wait(EPOLLIN, so=%d) OK", so);
   }
 
   if ( size == 0 ) {
@@ -1754,7 +1891,6 @@ ssize_t co_recv_rqh(int so, void * buf, size_t buf_size, int flags)
     errno = so_get_error(so);
   }
 
-  CF_TRACE("leave: so=%d size=%zd", so, size);
   return size;
 }
 
@@ -1888,6 +2024,12 @@ int co_poll(struct pollfd *__fds, nfds_t __nfds, int __timeout_ms)
           .mask = event_mask,
         }));
 
+    if ( !E_CHECK(&c[i].e) ) {
+      CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p",
+          c[i].e.type, c[i].e.so, c[i].e.head, c[i].e.tail);
+      raise(SIGINT);
+    }
+
 
     if ( !c[i].node ) {
       CF_FATAL("add_waiter() fails: %s", strerror(errno));
@@ -1903,6 +2045,12 @@ int co_poll(struct pollfd *__fds, nfds_t __nfds, int __timeout_ms)
   co_call(current_core->main);
 
   for ( nfds_t i = 0; i < __nfds; ++i ) {
+
+    if ( !E_CHECK(&c[i].e) ) {
+      CF_FATAL("App bug: e->type=%d e->so=%d e->head=%p e->tail=%p",
+          c[i].e.type, c[i].e.so, c[i].e.head, c[i].e.tail);
+      raise(SIGINT);
+    }
 
     epoll_remove(c[i].e.so);
 

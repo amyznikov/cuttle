@@ -15,10 +15,12 @@
 #include "corpc-proto.h"
 #include <errno.h>
 
-#define CORPC_CHANNEL_THREAD_STACK_SIZE   (256*1024)
+#define CORPC_CHANNEL_THREAD_STACK_SIZE   (8*256*1024)
 #define CORPC_STREAM_DEFAULT_QUEUE_SIZE   8
 
-#define CORPC_STREAM_DEFAULT_STACK_SIZE   (2*1024*1024)
+#define CORPC_STREAM_DEFAULT_STACK_SIZE   (8*1024*1024)
+
+#define CORPC_ON_ACCEPTED_DEFAULT_STACK_SIZE  (8*1024*1024)
 
 
 
@@ -595,14 +597,12 @@ static bool start_service_method_thread(corpc_stream * st, const struct corpc_se
 static void on_accepted_thread(void * arg)
 {
   corpc_channel * channel = arg;
-  CF_DEBUG("STARTED");
   channel->onaccepted(channel);
-  CF_DEBUG("FINISHED");
 }
 
 static bool start_on_accepted_thread(corpc_channel * channel)
 {
-  return co_schedule(on_accepted_thread, channel, 1024 * 1024);
+  return co_schedule(on_accepted_thread, channel, CORPC_ON_ACCEPTED_DEFAULT_STACK_SIZE);
 }
 
 
