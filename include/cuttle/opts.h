@@ -12,12 +12,13 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <limits.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-const char * cf_find_config_file(const char * service_name);
+const char * cf_find_config_file(const char * service_name, char config_file_name[PATH_MAX]);
 bool cf_read_config_file(const char * fname, bool (*parseopt)(char * key, char * value));
 bool cf_parse_option(char * line, bool (*parseopt)(char * key, char * value));
 

@@ -70,39 +70,35 @@ bool cf_parse_option(char * line, bool (*parseopt)(char * key, char * value))
 }
 
 
-const char * cf_find_config_file(const char * service_name)
+const char * cf_find_config_file(const char * service_name, char config_file_name[PATH_MAX])
 {
-  static char config_file_name[PATH_MAX];
   struct passwd * pw;
   uid_t uid;
 
-  if ( *config_file_name ) {
-    goto end;
-  }
 
-  snprintf(config_file_name, sizeof(config_file_name) - 1, "./%s.cfg", service_name);
+  snprintf(config_file_name, PATH_MAX - 1, "./%s", service_name);
   if ( access(config_file_name, F_OK) == 0 ) {
     goto end;
   }
 
   if ( (uid = geteuid()) != 0 && (pw = getpwuid(uid)) != NULL ) {
-    snprintf(config_file_name, sizeof(config_file_name) - 1, "%s/.config/%s/%s.cfg", pw->pw_dir, service_name, service_name);
+    snprintf(config_file_name, PATH_MAX - 1, "%s/.config/%s/%s", pw->pw_dir, service_name, service_name);
     if ( access(config_file_name, F_OK) == 0 ) {
       goto end;
     }
   }
 
-  snprintf(config_file_name, sizeof(config_file_name) - 1, "/var/lib/%s/%s.cfg", service_name, service_name);
+  snprintf(config_file_name, PATH_MAX - 1, "/var/lib/%s/%s", service_name, service_name);
   if ( access(config_file_name, F_OK) == 0 ) {
     goto end;
   }
 
-  snprintf(config_file_name, sizeof(config_file_name) - 1, "/usr/local/etc/%s/%s.cfg", service_name, service_name);
+  snprintf(config_file_name, PATH_MAX - 1, "/usr/local/etc/%s/%s", service_name, service_name);
   if ( access(config_file_name, F_OK) == 0 ) {
     goto end;
   }
 
-  snprintf(config_file_name, sizeof(config_file_name) - 1, "/etc/%s/%s.cfg", service_name, service_name);
+  snprintf(config_file_name, PATH_MAX - 1, "/etc/%s/%s", service_name, service_name);
   if ( access(config_file_name, F_OK) == 0 ) {
     goto end;
   }

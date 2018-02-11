@@ -7,6 +7,7 @@
 
 #define _GNU_SOURCE
 
+#include <stdio.h>
 #include <unistd.h>
 #include <errno.h>
 #include <sys/time.h>
@@ -234,6 +235,14 @@ bool so_close(int so, bool abort_conn)
   return close(so) == 0;
 }
 
+void so_sockaddr_in(const char * addrs, uint16_t port, struct sockaddr_in * sin)
+{
+  memset(sin, 0, sizeof(*sin));
+  sin->sin_family = AF_INET;
+  inet_pton(AF_INET, addrs, &sin->sin_addr);
+  sin->sin_port = htons(port);
+}
+
 
 int so_tcp_listen(const char * addrs, uint16_t port, struct sockaddr_in * _sin)
 {
@@ -281,12 +290,52 @@ __end:
 
 
 
-void so_sockaddr_in(const char * addrs, uint16_t port, struct sockaddr_in * sin)
+int so_tcp_listen2(uint32_t addrs, uint16_t port, struct sockaddr_in * _sout)
 {
-  memset(sin, 0, sizeof(*sin));
-  sin->sin_family = AF_INET;
-  inet_pton(AF_INET, addrs, &sin->sin_addr);
-  sin->sin_port = htons(port);
+  bool fOk = false;
+  struct sockaddr_in sin;
+  int so = -1;
+
+  if ((so = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1 ) {
+    // CF_FATAL("socket() fails: %s", strerror(errno));
+    goto __end;
+  }
+
+  if ( !so_set_reuse_addrs(so, true) ) {
+    // CF_WARNING("so_set_reuse_addrs() fails: %s", strerror(errno));
+  }
+
+
+  memset(&sin, 0, sizeof(sin));
+  sin.sin_family = AF_INET;
+  sin.sin_addr.s_addr = htonl(addrs);
+  sin.sin_port = htons(port);
+
+  if ( bind(so, (struct sockaddr*)&sin, sizeof(sin)) == -1 ) {
+    //CF_FATAL("bind() fails: %s", strerror(errno));
+    goto __end;
+  }
+
+  if ( listen(so, SOMAXCONN) == -1 ) {
+    // CF_FATAL("listen() fails: %s", strerror(errno));
+    goto __end;
+  }
+
+  if ( _sout ) {
+    *_sout = sin;
+  }
+
+  fOk = true;
+
+__end:
+
+  if ( !fOk ) {
+    if ( so != -1 ) {
+      close(so), so = -1;
+    }
+  }
+
+  return so;
 }
 
 
@@ -323,3 +372,13 @@ int so_tcp_connect2(const char * addrs, uint16_t port)
   return so_tcp_connect(&sin);
 }
 
+int so_tcp_connect3(const char * addrport)
+{
+  char addrs[256] = "";
+  uint16_t port = 0;
+  if ( sscanf(addrport, "%255[^:]:%hu", addrs, &port) != 2 || port == 0 ) {
+    errno = EINVAL;
+    return -1;
+  }
+  return so_tcp_connect2(addrs, port);
+}
